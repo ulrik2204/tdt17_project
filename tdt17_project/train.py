@@ -4,6 +4,7 @@ import torch.optim
 from matplotlib import pyplot as plt
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
+from torchvision import transforms
 from torchvision.ops import box_iou
 from tqdm import tqdm
 
@@ -89,32 +90,57 @@ def evaluate_model(
     help="Batch size for each training step",
 )
 @click.option("--learning_rate", default=LEARNING_RATE, help="Learning rate")
+@click.option("--use_test_set", default=True, help="If a test directory exists")
 @click.option("--device", default="cuda", help="Device to train on")
 def main(
-    dataset_path: str, epochs: int, batch_size: int, learning_rate: float, device: str
+    dataset_path: str,
+    epochs: int,
+    batch_size: int,
+    learning_rate: float,
+    use_test_set: bool,
+    device: str,
 ):
     print("Args: ", dataset_path, epochs, batch_size, learning_rate, device)
-    # TODO: Add transforms
-    train, val, test = (
-        get_dataset(dataset_path, "train"),
-        get_dataset(dataset_path, "val"),
-        get_dataset(dataset_path, "test"),
+    dataset_transforms = transforms.Compose(
+        [
+            transforms.Resize((224, 224)),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+        ]
     )
-    train_dl, val_dl, test_dl = (
-        DataLoader(train, batch_size=batch_size, shuffle=True),
-        DataLoader(val, batch_size=batch_size, shuffle=False),
-        DataLoader(test, batch_size=batch_size, shuffle=False),
+    train_data = get_dataset(dataset_path, "train", transform=dataset_transforms)
+    val_data = get_dataset(dataset_path, "val", transform=transforms.ToTensor())
+    test_data = (
+        get_dataset(dataset_path, "test", transform=transforms.ToTensor())
+        if use_test_set
+        else None
     )
+    train_dl = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+    val_dl = DataLoader(val_data, batch_size=batch_size, shuffle=False)
+    test_dl = (
+        DataLoader(test_data, batch_size=batch_size, shuffle=False)
+        if test_data
+        else None
+    )
+
     model = UNet(3, 3)
     # TODO: What should the softmax dim be?
-    loss_criterion = MulticlassDiceLoss(num_classes=len(train.classes), softmax_dim=1)
+    loss_criterion = MulticlassDiceLoss(
+        num_classes=len(train_data.classes), softmax_dim=1
+    )
     # TODO: Switch optimizer?
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)
     # TODO: Use scheduler?
     print("Starting training")
     train_model(model, train_dl, val_dl, optimizer, loss_criterion, epochs, device)
     print("\n*** Finished training model ***\n")
-    evaluate_model(model, test_dl, loss_criterion, "TEST", device)
+    evaluate_model(
+        model,
+        test_dl if test_dl else val_dl,
+        loss_criterion,
+        "TEST" if test_dl else "TEST (val dataset)",
+        device,
+    )
 
 
 if __name__ == "__main__":
