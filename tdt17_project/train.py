@@ -39,7 +39,7 @@ def train_model(
         for index, (image, target) in (
             pbar := tqdm(enumerate(train_dl), total=len(train_dl))
         ):
-            image, target = image.to(device).float(), target.to(device).float()
+            image, target = image.to(device).float(), target.to(device).long()
             pred = model(image)
             loss = loss_criterion(pred, target)
             loss.backward()

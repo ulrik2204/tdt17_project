@@ -27,7 +27,7 @@ def get_dataset(
 def get_image_target_transform():
     basic_transforms = A.Compose(
         [
-            A.Resize(512, 512),
+            A.Resize(256, 256),
             # Add more transforms here
             # A.HorizontalFlip(p=0.5),
             # A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
