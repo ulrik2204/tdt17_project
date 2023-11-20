@@ -1,5 +1,6 @@
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 import click
 import torch.nn as nn
@@ -22,8 +23,9 @@ WEIGHTS_FOLDER = "./weights"
 
 
 def iou_per_class(pred: torch.FloatTensor, target: torch.LongTensor):
-    tp, fp, fn, tn = get_stats(pred, target, mode="multilabel", threshold=0.5)
-    # Then compute IoU
+    # Chooose the most probable classes as the prediciton mask for each area
+    pred_argmax = cast(torch.FloatTensor, pred.argmax(dim=1).float())
+    tp, fp, fn, tn = get_stats(pred_argmax, target, mode="multilabel", threshold=0.5)
     return iou_score(tp, fp, fn, tn, reduction="micro")
 
 
