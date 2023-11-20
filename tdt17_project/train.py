@@ -124,17 +124,16 @@ def main(
         weights_folder,
     )
     Path(weights_folder).mkdir(exist_ok=True)
-    dataset_transforms = transforms.Compose(
+    basic_transforms = transforms.Compose(
         [
-            transforms.Resize((224, 224)),
-            transforms.RandomHorizontalFlip(),
+            transforms.Resize((568, 568)),
             transforms.ToTensor(),
         ]
     )
-    train_data = get_dataset(dataset_path, "train", transform=dataset_transforms)
-    val_data = get_dataset(dataset_path, "val", transform=transforms.ToTensor())
+    train_data = get_dataset(dataset_path, "train", transform=basic_transforms)
+    val_data = get_dataset(dataset_path, "val", transform=basic_transforms)
     test_data = (
-        get_dataset(dataset_path, "test", transform=transforms.ToTensor())
+        get_dataset(dataset_path, "test", transform=basic_transforms)
         if use_test_set
         else None
     )
@@ -168,6 +167,4 @@ def main(
 
 
 if __name__ == "__main__":
-    main()
-    main()
     main()
