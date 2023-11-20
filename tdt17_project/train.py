@@ -11,7 +11,7 @@ from tdt17_project.data import get_dataset
 from tdt17_project.loss import MulticlassDiceLoss
 from tdt17_project.model import UNet
 
-DATASET_BASE_PATH = "/cluster/projects/vc/data/ad/open/Cityscapes/gtFine"
+DATASET_BASE_PATH = "/cluster/projects/vc/data/ad/open/Cityscapes"
 BATCH_SIZE = 32
 EPOCHS = 10
 LEARNING_RATE = 0.005
@@ -79,31 +79,21 @@ def evaluate_model(
 
 
 @click.command()
-@click.argument(
-    "--dataset_path",
-    prompt="Path to the Cityscapes dataset",
-    type=str,
-    default=DATASET_BASE_PATH,
+@click.option(
+    "--dataset_path", default=DATASET_BASE_PATH, help="Path to the Cityscapes dataset"
 )
-@click.argument(
-    "--epochs",
-    prompt="Amount of epochs to train",
-    type=int,
-    default=EPOCHS,
-)
-@click.argument(
+@click.option("--epochs", default=EPOCHS, help="Amount of epochs to train")
+@click.option(
     "--batch_size",
-    prompt="Batch size for each training step",
-    type=str,
     default=BATCH_SIZE,
+    help="Batch size for each training step",
 )
-@click.argument(
-    "--learning_rate", prompt="Learning rate", type=float, default=LEARNING_RATE
-)
-@click.argument("--device", prompt="Device to train on", type=str, default="cuda")
+@click.option("--learning_rate", default=LEARNING_RATE, help="Learning rate")
+@click.option("--device", default="cuda", help="Device to train on")
 def main(
     dataset_path: str, epochs: int, batch_size: int, learning_rate: float, device: str
 ):
+    print("Args: ", dataset_path, epochs, batch_size, learning_rate, device)
     # TODO: Add transforms
     train, val, test = (
         get_dataset(dataset_path, "train"),
