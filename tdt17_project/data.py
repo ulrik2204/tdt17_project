@@ -1,16 +1,19 @@
-from typing import Literal
+from typing import Any, Callable, Literal
 
 from torchvision.datasets import Cityscapes
 
 
 def get_dataset(
-    path: str, split: Literal["train"] | Literal["val"] | Literal["test"] = "train"
+    path: str,
+    split: Literal["train"] | Literal["val"] | Literal["test"] = "train",
+    transform: Callable[[Any], Any] | None = None,
+    target_transform: Callable[[Any], Any] | None = None,
 ):
     return Cityscapes(
         path,
         split=split,
         mode="fine",
         target_type="semantic",
-        transform=None,
-        target_transform=None,
+        transform=transform,
+        target_transform=target_transform,
     )
