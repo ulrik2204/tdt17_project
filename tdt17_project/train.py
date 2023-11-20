@@ -21,6 +21,12 @@ LEARNING_RATE = 0.005
 WEIGHTS_FOLDER = "./weights"
 
 
+def iou_per_class(pred: torch.FloatTensor, target: torch.LongTensor):
+    tp, fp, fn, tn = get_stats(pred, target, mode="multilabel", threshold=0.5)
+    # Then compute IoU
+    return iou_score(tp, fp, fn, tn, reduction="micro")
+
+
 def train_model(
     model: nn.Module,
     train_dl: DataLoader,
@@ -173,9 +179,3 @@ def main(
 
 if __name__ == "__main__":
     main()
-
-
-def iou_per_class(pred: torch.FloatTensor, target: torch.LongTensor):
-    tp, fp, fn, tn = get_stats(pred, target, mode="multilabel", threshold=0.5)
-    # Then compute IoU
-    return iou_score(tp, fp, fn, tn, reduction="micro")
