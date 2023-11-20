@@ -25,7 +25,7 @@ def get_dataset(
 
 
 def get_image_target_transform():
-    basic_transforms = A.Compose(
+    trans = A.Compose(
         [
             A.Resize(256, 256),
             # Add more transforms here
@@ -36,7 +36,22 @@ def get_image_target_transform():
     )
 
     def transform_image_and_target(image, target):
-        transformed = basic_transforms(image=np.array(image), mask=np.array(target))
+        transformed = trans(image=np.array(image), mask=np.array(target))
+        return transformed["image"], transformed["mask"]
+
+    return transform_image_and_target
+
+
+def get_val_test_transform():
+    trans = A.Compose(
+        [
+            A.Resize(256, 256),
+            AP.ToTensorV2(),
+        ]
+    )
+
+    def transform_image_and_target(image, target):
+        transformed = trans(image=np.array(image), mask=np.array(target))
         return transformed["image"], transformed["mask"]
 
     return transform_image_and_target

@@ -8,10 +8,13 @@ import torch.optim
 from segmentation_models_pytorch.metrics import get_stats, iou_score
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
-from torchvision import transforms
 from tqdm import tqdm
 
-from tdt17_project.data import get_dataset, get_image_target_transform
+from tdt17_project.data import (
+    get_dataset,
+    get_image_target_transform,
+    get_val_test_transform,
+)
 from tdt17_project.loss import get_dice_loss
 from tdt17_project.model import get_unet_model
 
@@ -128,22 +131,21 @@ def main(
         weights_folder,
     )
     Path(weights_folder).mkdir(exist_ok=True)
-    transform_image_and_target = get_image_target_transform()
+    training_transforms = get_image_target_transform()
+    val_test_transforms = get_val_test_transform()
     train_data = get_dataset(
-        dataset_path, "train", transform_image_and_target=transform_image_and_target
+        dataset_path, "train", transform_image_and_target=training_transforms
     )
     val_data = get_dataset(
         dataset_path,
         "val",
-        transform_image=transforms.ToTensor(),
-        target_transform=transforms.ToTensor(),
+        transform_image_and_target=val_test_transforms,
     )
     test_data = (
         get_dataset(
             dataset_path,
             "test",
-            transform_image=transforms.ToTensor(),
-            target_transform=transforms.ToTensor(),
+            transform_image_and_target=val_test_transforms,
         )
         if use_test_set
         else None
@@ -180,4 +182,5 @@ def main(
 
 
 if __name__ == "__main__":
+    main()
     main()
