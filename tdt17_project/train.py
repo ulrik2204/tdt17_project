@@ -4,11 +4,10 @@ from pathlib import Path
 import click
 import torch.nn as nn
 import torch.optim
-from matplotlib import pyplot as plt
+from segmentation_models_pytorch.metrics import get_stats, iou_score
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from torchvision.ops import box_iou
 from tqdm import tqdm
 
 from tdt17_project.data import get_dataset, get_image_target_transform
@@ -16,7 +15,7 @@ from tdt17_project.loss import get_dice_loss
 from tdt17_project.model import get_unet_model
 
 DATASET_BASE_PATH = "/cluster/projects/vc/data/ad/open/Cityscapes"
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 EPOCHS = 10
 LEARNING_RATE = 0.005
 WEIGHTS_FOLDER = "./weights"
@@ -40,20 +39,17 @@ def train_model(
         for index, (image, target) in (
             pbar := tqdm(enumerate(train_dl), total=len(train_dl))
         ):
-            print("image", image)
-            print("target", target)
-            plt.imshow(image)
-            image, target = image.to(device), target.to(device)
+            image, target = image.to(device).float(), target.to(device).float()
             pred = model(image)
             loss = loss_criterion(pred, target)
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
             total_loss += loss.detach().cpu()
-            total_iou += box_iou(pred, target)
+            total_iou += iou_per_class(pred, target).detach().cpu()
 
             pbar.set_postfix_str(
-                f"TEST: average loss {total_loss/(index+1):.3f}, average acc {total_iou/(index+1):.3f}"
+                f"TEST: average loss {total_loss/(index+1):.3f}, mIoU: {total_iou/(index+1):.3f}"
             )
         validation_loss = evaluate_model(model, val_dl, loss_criterion, "VAL", device)
         if validation_loss < best_loss:
@@ -81,7 +77,7 @@ def evaluate_model(
             pred = model(image)
             loss = loss_criterion(pred, target)
             total_loss += loss.detach().cpu()
-            total_iou += box_iou(pred, target)
+            total_iou += iou_per_class(pred, target).detach().cpu()
 
             pbar.set_postfix_str(
                 f"{title}: average loss {total_loss/(index+1):.3f}, mIoU: {total_iou/(index+1):.3f}"
@@ -177,3 +173,9 @@ def main(
 
 if __name__ == "__main__":
     main()
+
+
+def iou_per_class(pred: torch.FloatTensor, target: torch.LongTensor):
+    tp, fp, fn, tn = get_stats(pred, target, mode="multilabel", threshold=0.5)
+    # Then compute IoU
+    return iou_score(tp, fp, fn, tn, reduction="micro")
