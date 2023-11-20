@@ -2,6 +2,7 @@ from typing import Any, Callable, Literal
 
 import albumentations as A
 import albumentations.pytorch as AP
+import numpy as np
 from torchvision.datasets import Cityscapes
 
 
@@ -35,7 +36,7 @@ def get_image_target_transform():
     )
 
     def transform_image_and_target(image, target):
-        transformed = basic_transforms(image=image, mask=target)
+        transformed = basic_transforms(image=np.array(image), mask=np.array(target))
         return transformed["image"], transformed["mask"]
 
     return transform_image_and_target
