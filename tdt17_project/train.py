@@ -84,12 +84,11 @@ def evaluate_model(
         for index, (image, target) in (
             pbar := tqdm(enumerate(dataloader), total=len(dataloader))
         ):
-            image, target = image.to(device), target.to(device)
+            image, target = image.to(device).float(), target.to(device).long()
             pred = model(image)
             loss = loss_criterion(pred, target)
             total_loss += loss.detach().cpu()
             total_iou += iou_per_class(pred, target).detach().cpu()
-
             pbar.set_postfix_str(
                 f"{title}: average loss {total_loss/(index+1):.3f}, mIoU: {total_iou/(index+1):.3f}"
             )
