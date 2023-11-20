@@ -1,16 +1,15 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from monai.networks.nets.unet import UNet
+from segmentation_models_pytorch import Unet
 
 
-def get_monai_unet(in_channels: int, out_channels: int):
-    return UNet(
-        spatial_dims=2,
+def get_unet_model(in_channels: int, out_channels: int):
+    return Unet(
+        encoder_name="resnet50",
+        encoder_weights="imagenet",
         in_channels=in_channels,
-        out_channels=out_channels,
-        channels=(4, 8, 16, 32, 64),
-        strides=(2, 2, 2, 2),
+        classes=out_channels,
     )
 
 

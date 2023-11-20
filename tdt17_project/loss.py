@@ -1,9 +1,9 @@
 import torch.nn as nn
-from monai.losses.dice import DiceLoss
+from segmentation_models_pytorch.losses import DiceLoss
 
 
-def get_monai_dice_loss():
-    return DiceLoss()
+def get_dice_loss():
+    return DiceLoss(mode="multiclass")
 
 
 class MulticlassDiceLoss(nn.Module):

@@ -11,9 +11,9 @@ from torchvision import transforms
 from torchvision.ops import box_iou
 from tqdm import tqdm
 
-from tdt17_project.data import get_dataset
-from tdt17_project.loss import get_monai_dice_loss
-from tdt17_project.model import get_monai_unet
+from tdt17_project.data import get_dataset, get_image_target_transform
+from tdt17_project.loss import get_dice_loss
+from tdt17_project.model import get_unet_model
 
 DATASET_BASE_PATH = "/cluster/projects/vc/data/ad/open/Cityscapes"
 BATCH_SIZE = 32
@@ -124,16 +124,23 @@ def main(
         weights_folder,
     )
     Path(weights_folder).mkdir(exist_ok=True)
-    basic_transforms = transforms.Compose(
-        [
-            transforms.Resize((568, 568)),
-            transforms.ToTensor(),
-        ]
+    transform_image_and_target = get_image_target_transform()
+    train_data = get_dataset(
+        dataset_path, "train", transform_image_and_target=transform_image_and_target
     )
-    train_data = get_dataset(dataset_path, "train", transforms=basic_transforms)
-    val_data = get_dataset(dataset_path, "val", transforms=basic_transforms)
+    val_data = get_dataset(
+        dataset_path,
+        "val",
+        transform_image=transforms.ToTensor(),
+        target_transform=transforms.ToTensor(),
+    )
     test_data = (
-        get_dataset(dataset_path, "test", transforms=basic_transforms)
+        get_dataset(
+            dataset_path,
+            "test",
+            transform_image=transforms.ToTensor(),
+            target_transform=transforms.ToTensor(),
+        )
         if use_test_set
         else None
     )
@@ -146,13 +153,13 @@ def main(
     )
 
     # model = UNetImpl(n_channels=3, n_classes=len(train_data.classes))
-    model = get_monai_unet(in_channels=3, out_channels=len(train_data.classes))
+    model = get_unet_model(in_channels=3, out_channels=len(train_data.classes))
     model.to(device)
     # TODO: What should the softmax dim be?
     # loss_criterion = MulticlassDiceLoss(
     #     num_classes=len(train_data.classes), softmax_dim=1
     # )
-    loss_criterion = get_monai_dice_loss()
+    loss_criterion = get_dice_loss()
     # TODO: Switch optimizer?
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)
     # TODO: Use scheduler?
