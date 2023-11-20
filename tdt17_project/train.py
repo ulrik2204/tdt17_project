@@ -1,3 +1,6 @@
+from datetime import datetime
+from pathlib import Path
+
 import click
 import torch.nn as nn
 import torch.optim
@@ -16,6 +19,7 @@ DATASET_BASE_PATH = "/cluster/projects/vc/data/ad/open/Cityscapes"
 BATCH_SIZE = 32
 EPOCHS = 10
 LEARNING_RATE = 0.005
+WEIGHTS_FOLDER = "./weights"
 
 
 def train_model(
@@ -28,6 +32,7 @@ def train_model(
     device="cuda",
 ):
     model.train()
+    best_loss = 10000000
     for epoch in range(epochs):
         print(f"\n--- Epoch {epoch+1} ---")
         total_loss = 0
@@ -50,7 +55,11 @@ def train_model(
             pbar.set_postfix_str(
                 f"TEST: average loss {total_loss/(index+1):.3f}, average acc {total_iou/(index+1):.3f}"
             )
-        evaluate_model(model, val_dl, loss_criterion, "VAL", device)
+        validation_loss = evaluate_model(model, val_dl, loss_criterion, "VAL", device)
+        if validation_loss < best_loss:
+            best_loss = validation_loss
+            time = datetime.now().strftime("%Y-%m-%d--%H-%M-%S")
+            torch.save(model.state_dict(), f"{time}_{validation_loss:.0f}_model.pt")
         # scheduler.step() # (after epoch)
 
 
@@ -77,6 +86,7 @@ def evaluate_model(
             pbar.set_postfix_str(
                 f"{title}: average loss {total_loss/(index+1):.3f}, mIoU: {total_iou/(index+1):.3f}"
             )
+    return total_loss / len(dataloader)
 
 
 @click.command()
@@ -92,6 +102,9 @@ def evaluate_model(
 @click.option("--learning_rate", default=LEARNING_RATE, help="Learning rate")
 @click.option("--use_test_set", default=True, help="If a test directory exists")
 @click.option("--device", default="cuda", help="Device to train on")
+@click.option(
+    "--weights_folder", default=WEIGHTS_FOLDER, help="Folder to save weights in"
+)
 def main(
     dataset_path: str,
     epochs: int,
@@ -99,8 +112,18 @@ def main(
     learning_rate: float,
     use_test_set: bool,
     device: str,
+    weights_folder: str,
 ):
-    print("Args: ", dataset_path, epochs, batch_size, learning_rate, device)
+    print(
+        "Args: ",
+        dataset_path,
+        epochs,
+        batch_size,
+        learning_rate,
+        device,
+        weights_folder,
+    )
+    Path(weights_folder).mkdir(exist_ok=True)
     dataset_transforms = transforms.Compose(
         [
             transforms.Resize((224, 224)),
@@ -123,7 +146,8 @@ def main(
         else None
     )
 
-    model = UNet(3, 3)
+    model = UNet(n_channels=3, n_classes=len(train_data.classes))
+    model.to(device)
     # TODO: What should the softmax dim be?
     loss_criterion = MulticlassDiceLoss(
         num_classes=len(train_data.classes), softmax_dim=1
@@ -144,5 +168,6 @@ def main(
 
 
 if __name__ == "__main__":
+    main()
     main()
     main()
