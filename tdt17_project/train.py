@@ -12,8 +12,8 @@ from torchvision.ops import box_iou
 from tqdm import tqdm
 
 from tdt17_project.data import get_dataset
-from tdt17_project.loss import MulticlassDiceLoss
-from tdt17_project.model import UNet
+from tdt17_project.loss import get_monai_dice_loss
+from tdt17_project.model import get_monai_unet
 
 DATASET_BASE_PATH = "/cluster/projects/vc/data/ad/open/Cityscapes"
 BATCH_SIZE = 32
@@ -145,12 +145,14 @@ def main(
         else None
     )
 
-    model = UNet(n_channels=3, n_classes=len(train_data.classes))
+    # model = UNetImpl(n_channels=3, n_classes=len(train_data.classes))
+    model = get_monai_unet(in_channels=3, out_channels=len(train_data.classes))
     model.to(device)
     # TODO: What should the softmax dim be?
-    loss_criterion = MulticlassDiceLoss(
-        num_classes=len(train_data.classes), softmax_dim=1
-    )
+    # loss_criterion = MulticlassDiceLoss(
+    #     num_classes=len(train_data.classes), softmax_dim=1
+    # )
+    loss_criterion = get_monai_dice_loss()
     # TODO: Switch optimizer?
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)
     # TODO: Use scheduler?

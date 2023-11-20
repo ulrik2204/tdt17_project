@@ -1,13 +1,25 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from monai.networks.nets.unet import UNet
+
+
+def get_monai_unet(in_channels: int, out_channels: int):
+    return UNet(
+        spatial_dims=2,
+        in_channels=in_channels,
+        out_channels=out_channels,
+        channels=(4, 8, 16, 32, 64),
+        strides=(2, 2, 2, 2),
+    )
+
 
 # Taken from: https://github.com/milesial/Pytorch-UNet/
 
 
-class UNet(nn.Module):
+class UNetImpl(nn.Module):
     def __init__(self, n_channels, n_classes, bilinear=False):
-        super(UNet, self).__init__()
+        super(UNetImpl, self).__init__()
         self.n_channels = n_channels
         self.n_classes = n_classes
         self.bilinear = bilinear
