@@ -130,10 +130,10 @@ def main(
             transforms.ToTensor(),
         ]
     )
-    train_data = get_dataset(dataset_path, "train", transform=basic_transforms)
-    val_data = get_dataset(dataset_path, "val", transform=basic_transforms)
+    train_data = get_dataset(dataset_path, "train", transforms=basic_transforms)
+    val_data = get_dataset(dataset_path, "val", transforms=basic_transforms)
     test_data = (
-        get_dataset(dataset_path, "test", transform=basic_transforms)
+        get_dataset(dataset_path, "test", transforms=basic_transforms)
         if use_test_set
         else None
     )

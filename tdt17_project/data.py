@@ -6,7 +6,7 @@ from torchvision.datasets import Cityscapes
 def get_dataset(
     path: str,
     split: Literal["train"] | Literal["val"] | Literal["test"] = "train",
-    transform: Callable[[Any], Any] | None = None,
+    transforms: Callable[[Any], Any] | None = None,
     target_transform: Callable[[Any], Any] | None = None,
 ):
     return Cityscapes(
@@ -14,6 +14,6 @@ def get_dataset(
         split=split,
         mode="fine",
         target_type="semantic",
-        transform=transform,
+        transforms=transforms,
         target_transform=target_transform,
     )
