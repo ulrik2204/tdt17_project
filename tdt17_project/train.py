@@ -52,7 +52,8 @@ def train_model(
     loss_criterion: nn.Module,
     metric: Callable[[Any, Any], Any],
     epochs: int,
-    device="cuda",
+    save_folder: str,
+    device: str = "cuda",
 ):
     model.train()
     best_loss = 10000000
@@ -81,7 +82,10 @@ def train_model(
         if validation_loss < best_loss:
             best_loss = validation_loss
             time = datetime.now().strftime("%Y-%m-%d--%H-%M-%S")
-            torch.save(model.state_dict(), f"{time}_{validation_loss:.0f}_model.pt")
+            torch.save(
+                model.state_dict(),
+                f"{save_folder}{time}_{validation_loss:.0f}_model.pt",
+            )
         # scheduler.step() # (after epoch)
 
 
@@ -171,7 +175,8 @@ def main(
         device,
         weights_folder,
     )
-    Path(weights_folder).mkdir(exist_ok=True)
+    save_folder = Path(weights_folder)
+    save_folder.mkdir(exist_ok=True)
     training_transforms = get_image_target_transform()
     val_test_transforms = get_val_test_transform()
     train_data = get_dataset(
@@ -230,6 +235,7 @@ def main(
         loss_criterion,
         mean_iou_score,
         epochs,
+        save_folder.as_posix(),
         device,
     )
     print("\n*** Finished training model ***\n")
