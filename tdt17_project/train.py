@@ -135,7 +135,9 @@ def show_model_segmentation_sample(model: nn.Module, examples: list[tuple[Any, A
     with torch.no_grad():
         for image, target in examples:
             pred = model(image).detach().cpu()
-            decoded_pred = decode_segmap(torch.argmax(pred, dim=0).numpy())
+            decoded_pred = decode_segmap(
+                torch.argmax(pred.detach().cpu(), dim=0).numpy()
+            )
             decoded_target_mask = decode_segmap(target.numpy())
             plot_image_mask_and_pred(image, decoded_target_mask, decoded_pred)
 
