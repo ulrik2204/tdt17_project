@@ -1,10 +1,13 @@
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any, Callable
 
 import click
+import numpy as np
 import torch.nn as nn
 import torch.optim
+from matplotlib import pyplot as plt
+from segmentation_models_pytorch.losses import DiceLoss
 from segmentation_models_pytorch.utils.metrics import IoU
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
@@ -15,14 +18,30 @@ from tdt17_project.data import (
     get_image_target_transform,
     get_val_test_transform,
 )
-from tdt17_project.loss import get_dice_loss
 from tdt17_project.model import get_unet_model
+from tdt17_project.utils import decode_segmap, encode_segmap
 
 DATASET_BASE_PATH = "/cluster/projects/vc/data/ad/open/Cityscapes"
 BATCH_SIZE = 16
 EPOCHS = 10
 LEARNING_RATE = 0.005
 WEIGHTS_FOLDER = "./weights"
+
+
+def process_batch(
+    image: torch.Tensor,
+    target: torch.Tensor,
+    model: nn.Module,
+    loss_criterion: nn.Module,
+    metric: Callable[[Any, Any], Any],
+    device: str,
+):
+    image = image.to(device).float()
+    target = encode_segmap(target.to(device).long())  # to remove unwanted classes
+    pred = model(image)
+    loss = loss_criterion(pred, target)
+    metric_score = metric(pred, target).detach().cpu()
+    return loss, metric_score
 
 
 def train_model(
@@ -40,21 +59,21 @@ def train_model(
     for epoch in range(epochs):
         print(f"\n--- Epoch {epoch+1} ---")
         total_loss = 0
-        total_iou = 0
+        total_metric = 0
         for index, (image, target) in (
             pbar := tqdm(enumerate(train_dl), total=len(train_dl))
         ):
-            image, target = image.to(device).float(), target.to(device).long()
-            pred = model(image)
-            loss = loss_criterion(pred, target)
+            loss, metric_score = process_batch(
+                image, target, model, loss_criterion, metric, device
+            )
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
             total_loss += loss.detach().cpu()
-            total_iou += metric(pred, target).detach().cpu()
+            total_metric += metric_score
 
             pbar.set_postfix_str(
-                f"TEST: average loss {total_loss/(index+1):.3f}, {metric.__name__}: {total_iou/(index+1):.3f}"
+                f"TEST: average loss {total_loss/(index+1):.3f}, {metric.__name__}: {total_metric/(index+1):.3f}"
             )
         validation_loss = evaluate_model(
             model, val_dl, loss_criterion, metric, "VAL", device
@@ -76,20 +95,46 @@ def evaluate_model(
 ):
     model.eval()
     total_loss = 0
-    total_iou = 0
+    total_metric = 0
     with torch.no_grad():
         for index, (image, target) in (
             pbar := tqdm(enumerate(dataloader), total=len(dataloader))
         ):
-            image, target = image.to(device).float(), target.to(device).long()
-            pred = model(image)
-            loss = loss_criterion(pred, target)
+            loss, metric_score = process_batch(
+                image, target, model, loss_criterion, metric, device
+            )
             total_loss += loss.detach().cpu()
-            total_iou += metric(pred, target).detach().cpu()
+            total_metric += metric_score.detach().cpu()
             pbar.set_postfix_str(
-                f"{title}: average loss {total_loss/(index+1):.3f}, {metric.__name__}: {total_iou/(index+1):.3f}"
+                f"{title}: average loss {total_loss/(index+1):.3f}, avg {metric.__name__}: {total_metric/(index+1):.3f}"
             )
     return total_loss / len(dataloader)
+
+
+def show_image_segmentation_sample(real_image, pred_mask, real_mask):
+    fig, ax = plt.subplots(ncols=3, figsize=(16, 50), facecolor="white")
+    ax[0].imshow(np.moveaxis(real_image.numpy(), 0, 2))  # (3,256, 512)
+    # ax[1].imshow(encoded_mask,cmap='gray') #(256, 512)
+    ax[1].imshow(real_mask)  # (256, 512, 3)
+    ax[2].imshow(pred_mask)  # (256, 512, 3)
+    ax[0].axis("off")
+    ax[1].axis("off")
+    ax[2].axis("off")
+    ax[0].set_title("Input Image")
+    ax[1].set_title("Ground mask")
+    ax[2].set_title("Predicted mask")
+    plt.savefig("result.png", bbox_inches="tight")
+
+
+def show_model_segmentation_sample(model: nn.Module, examples: list[tuple[Any, Any]]):
+    print("\n--- Model examples ---")
+    model.eval()
+    with torch.no_grad():
+        for image, target in examples:
+            pred = model(image).detach().cpu()
+            decoded_pred = decode_segmap(torch.argmax(pred, dim=0).numpy())
+            decoded_mask = decode_segmap(target.numpy())
+            show_image_segmentation_sample(image, decoded_pred, decoded_mask)
 
 
 @click.command()
@@ -162,7 +207,7 @@ def main(
     # loss_criterion = MulticlassDiceLoss(
     #     num_classes=len(train_data.classes), softmax_dim=1
     # )
-    loss_criterion = get_dice_loss()
+    loss_criterion = DiceLoss(mode="multiclass")
     iou_meteric = IoU()
 
     def mean_iou_score(preds, targets):
@@ -196,6 +241,8 @@ def main(
         "TEST" if test_dl else "TEST (val dataset)",
         device,
     )
+    sample_image, target_mask = val_data[0]
+    show_model_segmentation_sample(model, [(sample_image, target_mask)])
 
 
 if __name__ == "__main__":

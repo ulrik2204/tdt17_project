@@ -1,9 +1,4 @@
 import torch.nn as nn
-from segmentation_models_pytorch.losses import DiceLoss
-
-
-def get_dice_loss():
-    return DiceLoss(mode="multiclass")
 
 
 class MulticlassDiceLoss(nn.Module):
@@ -35,5 +30,4 @@ class MulticlassDiceLoss(nn.Module):
 
         dice_coefficient = 2.0 * intersection / (mod_a + mod_b + smooth)
         dice_loss = -dice_coefficient.log()
-        return dice_loss
         return dice_loss
