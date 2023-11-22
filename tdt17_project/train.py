@@ -241,8 +241,6 @@ def main(
     # TODO: Switch optimizer?
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)
     # TODO: Use scheduler?
-    sample_image, target_mask = val_data[0]
-    show_model_segmentation_sample(model, [(sample_image, target_mask)], device)
     print("Starting training")
     train_model(
         model,
