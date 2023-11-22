@@ -172,13 +172,16 @@ def main(
     resume_from_weights: str,
 ):
     print(
-        "Args: ",
-        dataset_path,
-        epochs,
-        batch_size,
-        learning_rate,
-        device,
-        weights_folder,
+        f"""Args: 
+        dataset_path={dataset_path},
+        epochs={epochs},
+        batch_size={batch_size},
+        learning_rate={learning_rate},
+        use_test_set={use_test_set},
+        device={device},
+        weights_folder={weights_folder},
+        resume_from_weights={resume_from_weights}
+        """
     )
     save_folder = Path(weights_folder)
     save_folder.mkdir(exist_ok=True)
