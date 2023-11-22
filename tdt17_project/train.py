@@ -22,7 +22,7 @@ from tdt17_project.model import get_unet_model
 from tdt17_project.utils import decode_segmap, encode_segmap
 
 DATASET_BASE_PATH = "/cluster/projects/vc/data/ad/open/Cityscapes"
-BATCH_SIZE = 16
+BATCH_SIZE = 32
 EPOCHS = 10
 LEARNING_RATE = 0.005
 WEIGHTS_FOLDER = "./weights"
@@ -52,7 +52,7 @@ def train_model(
     loss_criterion: nn.Module,
     metric: Callable[[Any, Any], Any],
     epochs: int,
-    save_folder: str,
+    save_folder: Path,
     device: str = "cuda",
 ):
     model.train()
@@ -79,12 +79,12 @@ def train_model(
         validation_loss = evaluate_model(
             model, val_dl, loss_criterion, metric, "VAL", device
         )
-        if validation_loss < best_loss:
+        if epoch % 5 == 0 and validation_loss < best_loss:
             best_loss = validation_loss
             time = datetime.now().strftime("%Y-%m-%d--%H-%M-%S")
             torch.save(
                 model.state_dict(),
-                f"{save_folder}{time}_{validation_loss:.0f}_model.pt",
+                (save_folder / f"{time}_{validation_loss:.0f}_model.pt").as_posix(),
             )
         # scheduler.step() # (after epoch)
 
@@ -143,19 +143,24 @@ def show_model_segmentation_sample(model: nn.Module, examples: list[tuple[Any, A
 
 @click.command()
 @click.option(
-    "--dataset_path", default=DATASET_BASE_PATH, help="Path to the Cityscapes dataset"
+    "--dataset-path", default=DATASET_BASE_PATH, help="Path to the Cityscapes dataset"
 )
 @click.option("--epochs", default=EPOCHS, help="Amount of epochs to train")
 @click.option(
-    "--batch_size",
+    "--batch-size",
     default=BATCH_SIZE,
     help="Batch size for each training step",
 )
-@click.option("--learning_rate", default=LEARNING_RATE, help="Learning rate")
-@click.option("--use_test_set", default=True, help="If a test directory exists")
+@click.option("--learning-rate", default=LEARNING_RATE, help="Learning rate")
+@click.option("--use-test-set", default=True, help="If a test directory exists")
 @click.option("--device", default="cuda", help="Device to train on")
 @click.option(
-    "--weights_folder", default=WEIGHTS_FOLDER, help="Folder to save weights in"
+    "--weights-folder", default=WEIGHTS_FOLDER, help="Folder to save weights in"
+)
+@click.option(
+    "--resume-from-weights",
+    default=None,
+    help="Path to weights to resume training on. If none, starts from scratch.",
 )
 def main(
     dataset_path: str,
@@ -165,6 +170,7 @@ def main(
     use_test_set: bool,
     device: str,
     weights_folder: str,
+    resume_from_weights: str,
 ):
     print(
         "Args: ",
@@ -208,6 +214,8 @@ def main(
     num_classes = len(train_data.classes)
     model = get_unet_model(in_channels=3, out_channels=num_classes)
     model.to(device)
+    if resume_from_weights:
+        model.load_state_dict(torch.load(resume_from_weights))
     # TODO: What should the softmax dim be?
     # loss_criterion = MulticlassDiceLoss(
     #     num_classes=len(train_data.classes), softmax_dim=1
@@ -235,7 +243,7 @@ def main(
         loss_criterion,
         mean_iou_score,
         epochs,
-        save_folder.as_posix(),
+        save_folder,
         device,
     )
     print("\n*** Finished training model ***\n")
