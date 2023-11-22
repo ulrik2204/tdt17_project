@@ -98,13 +98,13 @@ def encode_segmap(mask):
     return mask
 
 
-def decode_segmap(temp):
+def decode_segmap(segmap):
     # convert gray scale to color
-    temp = temp.numpy()
+    temp = segmap.numpy()
     r = temp.copy()
     g = temp.copy()
     b = temp.copy()
-    n_classes = len(CityscapesContants.COLORS)
+    n_classes = len(CityscapesContants.VALID_CLASSES)
     for label in range(0, n_classes):
         r[temp == label] = CityscapesContants.LABEL_COLORS[label][0]
         g[temp == label] = CityscapesContants.LABEL_COLORS[label][1]

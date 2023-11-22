@@ -19,7 +19,7 @@ from tdt17_project.data import (
     get_val_test_transform,
 )
 from tdt17_project.model import get_unet_model
-from tdt17_project.utils import decode_segmap, encode_segmap
+from tdt17_project.utils import CityscapesContants, decode_segmap, encode_segmap
 
 DATASET_BASE_PATH = "/cluster/projects/vc/data/ad/open/Cityscapes"
 BATCH_SIZE = 32
@@ -36,11 +36,11 @@ def process_batch(
     metric: Callable[[Any, Any], Any],
     device: str,
 ):
-    image = image.to(device).float()
-    target = encode_segmap(target.to(device).long())  # to remove unwanted classes
-    pred = model(image)
-    loss = loss_criterion(pred, target)
-    metric_score = metric(pred, target).detach().cpu()
+    image_prep = image.to(device).float()
+    target_prep = encode_segmap(target.to(device).long())  # to remove unwanted classes
+    pred = model(image_prep)
+    loss = loss_criterion(pred, target_prep)
+    metric_score = metric(pred, target_prep).detach().cpu()
     return loss, metric_score
 
 
@@ -129,16 +129,19 @@ def plot_image_mask_and_pred(real_image, target_mask, pred_mask):
     plt.savefig("result.png", bbox_inches="tight")
 
 
-def show_model_segmentation_sample(model: nn.Module, examples: list[tuple[Any, Any]]):
+def show_model_segmentation_sample(
+    model: nn.Module, examples: list[tuple[Any, Any]], device: str
+):
     print("\n--- Model examples ---")
     model.eval()
     with torch.no_grad():
         for image, target in examples:
-            pred = model(image).detach().cpu()
-            decoded_pred = decode_segmap(
-                torch.argmax(pred.detach().cpu(), dim=0).numpy()
-            )
-            decoded_target_mask = decode_segmap(target.numpy())
+            image_prep = image.to(device).float().unsqueeze(0)
+            target_prep = target.to(device).long()
+            pred = model(image_prep).detach().cpu()
+            decoded_pred = decode_segmap(torch.argmax(pred, dim=0))
+            encoded_target_mask = encode_segmap(target_prep)
+            decoded_target_mask = decode_segmap(encoded_target_mask)
             plot_image_mask_and_pred(image, decoded_target_mask, decoded_pred)
 
 
@@ -215,7 +218,7 @@ def main(
     )
 
     # model = UNetImpl(n_channels=3, n_classes=len(train_data.classes))
-    num_classes = len(train_data.classes)
+    num_classes = len(CityscapesContants.VALID_CLASSES)
     model = get_unet_model(in_channels=3, out_channels=num_classes)
     model.to(device)
     if resume_from_weights:
@@ -238,6 +241,8 @@ def main(
     # TODO: Switch optimizer?
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)
     # TODO: Use scheduler?
+    sample_image, target_mask = val_data[0]
+    show_model_segmentation_sample(model, [(sample_image, target_mask)], device)
     print("Starting training")
     train_model(
         model,
@@ -260,7 +265,7 @@ def main(
         device,
     )
     sample_image, target_mask = val_data[0]
-    show_model_segmentation_sample(model, [(sample_image, target_mask)])
+    show_model_segmentation_sample(model, [(sample_image, target_mask)], device)
 
 
 if __name__ == "__main__":
