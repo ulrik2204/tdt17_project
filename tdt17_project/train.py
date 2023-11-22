@@ -1,11 +1,11 @@
 from datetime import datetime
 from pathlib import Path
-from typing import cast
+from typing import Any, Callable, cast
 
 import click
 import torch.nn as nn
 import torch.optim
-from segmentation_models_pytorch.metrics import get_stats, iou_score
+from segmentation_models_pytorch.utils.metrics import IoU
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -25,19 +25,13 @@ LEARNING_RATE = 0.005
 WEIGHTS_FOLDER = "./weights"
 
 
-def iou_per_class(pred: torch.FloatTensor, target: torch.LongTensor):
-    # Chooose the most probable classes as the prediciton mask for each area
-    pred_argmax = cast(torch.FloatTensor, pred.argmax(dim=1).float())
-    tp, fp, fn, tn = get_stats(pred_argmax, target, mode="multilabel", threshold=0.5)
-    return iou_score(tp, fp, fn, tn, reduction="micro")
-
-
 def train_model(
     model: nn.Module,
     train_dl: DataLoader,
     val_dl: DataLoader,
     optimizer: Optimizer,
     loss_criterion: nn.Module,
+    metric: Callable[[Any, Any], Any],
     epochs: int,
     device="cuda",
 ):
@@ -57,12 +51,14 @@ def train_model(
             optimizer.step()
             optimizer.zero_grad()
             total_loss += loss.detach().cpu()
-            total_iou += iou_per_class(pred, target).detach().cpu()
+            total_iou += metric(pred, target).detach().cpu()
 
             pbar.set_postfix_str(
-                f"TEST: average loss {total_loss/(index+1):.3f}, mIoU: {total_iou/(index+1):.3f}"
+                f"TEST: average loss {total_loss/(index+1):.3f}, {metric.__name__}: {total_iou/(index+1):.3f}"
             )
-        validation_loss = evaluate_model(model, val_dl, loss_criterion, "VAL", device)
+        validation_loss = evaluate_model(
+            model, val_dl, loss_criterion, metric, "VAL", device
+        )
         if validation_loss < best_loss:
             best_loss = validation_loss
             time = datetime.now().strftime("%Y-%m-%d--%H-%M-%S")
@@ -74,6 +70,7 @@ def evaluate_model(
     model: nn.Module,
     dataloader: DataLoader,
     loss_criterion: nn.Module,
+    metric: Callable[[Any, Any], Any],
     title: str,
     device="cuda",
 ):
@@ -88,9 +85,9 @@ def evaluate_model(
             pred = model(image)
             loss = loss_criterion(pred, target)
             total_loss += loss.detach().cpu()
-            total_iou += iou_per_class(pred, target).detach().cpu()
+            total_iou += metric(pred, target).detach().cpu()
             pbar.set_postfix_str(
-                f"{title}: average loss {total_loss/(index+1):.3f}, mIoU: {total_iou/(index+1):.3f}"
+                f"{title}: average loss {total_loss/(index+1):.3f}, {metric.__name__}: {total_iou/(index+1):.3f}"
             )
     return total_loss / len(dataloader)
 
@@ -158,28 +155,48 @@ def main(
     )
 
     # model = UNetImpl(n_channels=3, n_classes=len(train_data.classes))
-    model = get_unet_model(in_channels=3, out_channels=len(train_data.classes))
+    num_classes = len(train_data.classes)
+    model = get_unet_model(in_channels=3, out_channels=num_classes)
     model.to(device)
     # TODO: What should the softmax dim be?
     # loss_criterion = MulticlassDiceLoss(
     #     num_classes=len(train_data.classes), softmax_dim=1
     # )
     loss_criterion = get_dice_loss()
+    iou_meteric = IoU()
+
+    def mean_iou_score(preds, targets):
+        targets_one_hot = (
+            torch.nn.functional.one_hot(targets.long(), num_classes)
+            .permute(0, 3, 1, 2)
+            .float()
+        )
+        return iou_meteric(preds, targets_one_hot).mean()
+
     # TODO: Switch optimizer?
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)
     # TODO: Use scheduler?
     print("Starting training")
-    train_model(model, train_dl, val_dl, optimizer, loss_criterion, epochs, device)
+    train_model(
+        model,
+        train_dl,
+        val_dl,
+        optimizer,
+        loss_criterion,
+        mean_iou_score,
+        epochs,
+        device,
+    )
     print("\n*** Finished training model ***\n")
     evaluate_model(
         model,
         test_dl if test_dl else val_dl,
         loss_criterion,
+        mean_iou_score,
         "TEST" if test_dl else "TEST (val dataset)",
         device,
     )
 
 
 if __name__ == "__main__":
-    main()
     main()
