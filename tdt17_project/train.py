@@ -115,12 +115,11 @@ def evaluate_model(
     return total_loss / len(dataloader)
 
 
-def show_image_segmentation_sample(real_image, pred_mask, real_mask):
-    fig, ax = plt.subplots(ncols=3, figsize=(16, 50), facecolor="white")
-    ax[0].imshow(np.moveaxis(real_image.numpy(), 0, 2))  # (3,256, 512)
-    # ax[1].imshow(encoded_mask,cmap='gray') #(256, 512)
-    ax[1].imshow(real_mask)  # (256, 512, 3)
-    ax[2].imshow(pred_mask)  # (256, 512, 3)
+def plot_image_mask_and_pred(real_image, target_mask, pred_mask):
+    _, ax = plt.subplots(ncols=3, figsize=(16, 50), facecolor="white")
+    ax[0].imshow(np.moveaxis(real_image.numpy(), 0, 2))
+    ax[1].imshow(target_mask)
+    ax[2].imshow(pred_mask)
     ax[0].axis("off")
     ax[1].axis("off")
     ax[2].axis("off")
@@ -137,8 +136,8 @@ def show_model_segmentation_sample(model: nn.Module, examples: list[tuple[Any, A
         for image, target in examples:
             pred = model(image).detach().cpu()
             decoded_pred = decode_segmap(torch.argmax(pred, dim=0).numpy())
-            decoded_mask = decode_segmap(target.numpy())
-            show_image_segmentation_sample(image, decoded_pred, decoded_mask)
+            decoded_target_mask = decode_segmap(target.numpy())
+            plot_image_mask_and_pred(image, decoded_target_mask, decoded_pred)
 
 
 @click.command()
