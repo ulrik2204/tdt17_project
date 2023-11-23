@@ -99,7 +99,7 @@ def train_model(
             best_loss = loss if loss < best_loss else best_loss
 
             pbar.set_postfix_str(
-                f"TEST: avg loss {total_loss/(index+1):.3f}, "
+                f"TRAIN: avg loss {total_loss/(index+1):.3f}, "
                 + f"avg {running_metric.__name__}: {total_metric/(index+1):.3f}"
             )
         best_model_result = (
