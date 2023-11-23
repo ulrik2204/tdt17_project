@@ -24,7 +24,7 @@ from tdt17_project.utils import CityscapesContants, decode_segmap, encode_segmap
 
 DATASET_BASE_PATH = "/cluster/projects/vc/data/ad/open/Cityscapes"
 BATCH_SIZE = 32
-EPOCHS = 50
+EPOCHS = 10
 LEARNING_RATE = 0.001
 WEIGHTS_FOLDER = "./weights"
 
