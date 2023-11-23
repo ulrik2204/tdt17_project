@@ -1,6 +1,6 @@
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, NamedTuple, Protocol
+from typing import Any, Callable, NamedTuple, Protocol, cast
 
 import click
 import numpy as np
@@ -130,7 +130,7 @@ def evaluate_model(
     model.eval()
     total_loss = 0
     metrics = [running_metric] + (eval_metrics or [])
-    all_metric_totals = [torch.tensor(0) for _ in range(len(metrics))]
+    all_metric_totals: list[torch.Tensor | int] = [0 for _ in range(len(metrics))]
     with torch.no_grad():
         for index, (image, target) in (
             pbar := tqdm(enumerate(dataloader), total=len(dataloader))
@@ -151,7 +151,10 @@ def evaluate_model(
                 f"{title}: average loss {total_loss/(index+1):.3f}, "
                 + f"avg {running_metric.__name__}: {avg_running_metric_score:.3f}"
             )
-    avg_metrics = [metric_total / len(dataloader) for metric_total in all_metric_totals]
+    avg_metrics = [
+        cast(torch.Tensor, metric_total / len(dataloader))
+        for metric_total in all_metric_totals
+    ]
     return EvalResult(float(total_loss / len(dataloader)), avg_metrics)
 
 
@@ -241,7 +244,7 @@ def main(
     resume_from_weights: str,
 ):
     print(
-        f"""Args: 
+        f"""Args:
         dataset_path={dataset_path},
         epochs={epochs},
         batch_size={batch_size},

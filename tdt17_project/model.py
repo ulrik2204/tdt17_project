@@ -6,7 +6,7 @@ from segmentation_models_pytorch import Unet
 
 def get_unet_model(in_channels: int, out_channels: int):
     return Unet(
-        encoder_name="resnet50",
+        encoder_name="resnet101",
         encoder_weights="imagenet",
         in_channels=in_channels,
         classes=out_channels,
