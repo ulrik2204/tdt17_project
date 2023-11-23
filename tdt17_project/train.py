@@ -1,3 +1,4 @@
+from ast import Call
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, NamedTuple, Protocol, cast
@@ -23,7 +24,7 @@ from tdt17_project.utils import CityscapesContants, decode_segmap, encode_segmap
 
 DATASET_BASE_PATH = "/cluster/projects/vc/data/ad/open/Cityscapes"
 BATCH_SIZE = 32
-EPOCHS = 20
+EPOCHS = 50
 LEARNING_RATE = 0.001
 WEIGHTS_FOLDER = "./weights"
 
@@ -58,7 +59,6 @@ class AfterEpochFn(Protocol):
         model: nn.Module,
         loss_criterion: nn.Module,
         epoch: int,
-        best_loss: torch.Tensor,
     ) -> str | None:
         ...
 
@@ -66,17 +66,18 @@ class AfterEpochFn(Protocol):
 def train_model(
     model: nn.Module,
     train_dl: DataLoader,
+    val_dl: DataLoader,
     optimizer: Optimizer,
     loss_criterion: nn.Module,
     epochs: int,
-    running_metric: Callable[[Any, Any], Any],
-    metric_name: str = "metric",
-    after_epoch: AfterEpochFn | None = None,
+    metrics: list[Callable[[Any, Any], Any]],
+    display_metrics_fns: list[Callable[[torch.Tensor], str]],
+    save_folder: Path,
     device: str = "cuda",
 ) -> str:
     model.train()
-    best_loss = torch.Tensor([10000000.0]).to(device)
     best_model_name = ""
+    best_loss = 10000.0
     for epoch in range(epochs):
         print(f"\n--- Epoch {epoch+1} ---")
         total_loss = 0
@@ -89,7 +90,7 @@ def train_model(
                 target,
                 model,
                 loss_criterion,
-                [running_metric],
+                [metrics[0]],
                 device,
             )
             loss.backward()
@@ -97,18 +98,29 @@ def train_model(
             optimizer.zero_grad()
             total_loss += loss.detach().cpu()
             total_metric += metric_scores[0]
-            best_loss = loss if loss < best_loss else best_loss
+            metric_display_text = display_metrics_fns[0](metric_scores[0])
 
             pbar.set_postfix_str(
                 f"TRAIN: avg loss {total_loss/(index+1):.3f}, "
-                + f"avg {metric_name}: {total_metric/(index+1):.3f}"
+                + f"{metric_display_text}"
             )
-        best_model_name = (
-            after_epoch(model, loss_criterion, epoch, best_loss)
-            if after_epoch
-            else None
+        avg_eval_loss, avg_eval_metric_scores = evaluate_model(
+            model=model,
+            dataloader=val_dl,
+            loss_criterion=loss_criterion,
+            metrics=metrics,
+            first_metric_name="mIoU",
+            title="VAL",
+            device=device,
         )
-        best_model_name = best_model_name if best_model_name else ""
+        display_metrics_to_screen(avg_eval_metric_scores, display_metrics_fns)
+        if epoch % 3 == 0 and avg_eval_loss < best_loss:
+            print("Saving!")
+            best_loss = avg_eval_loss
+            time = datetime.now().strftime("%d%H%M")
+            best_model_name = f"{time}_model.pt"
+            model_path = (save_folder / best_model_name).as_posix()
+            torch.save(model.state_dict(), model_path)
 
         # scheduler.step() # (after epoch)
     return best_model_name
@@ -330,27 +342,6 @@ def main(
         display_weighted_iou_score,
     ]
 
-    def after_epoch(
-        model: nn.Module, loss_criterion: nn.Module, epoch: int, best_loss: torch.Tensor
-    ) -> str | None:
-        avg_eval_loss, avg_eval_metric_scores = evaluate_model(
-            model=model,
-            dataloader=val_dl,
-            loss_criterion=loss_criterion,
-            metrics=metrics,
-            first_metric_name="mIoU",
-            title="VAL",
-            device=device,
-        )
-        display_metrics_to_screen(avg_eval_metric_scores, display_metrics)
-        if avg_eval_loss < best_loss:
-            time = datetime.now().strftime("%d%H%M")
-            best_model_name = f"{time}_model.pt"
-            model_path = (save_folder / best_model_name).as_posix()
-            torch.save(model.state_dict(), model_path)
-            return best_model_name
-        return None
-
     # TODO: Switch optimizer?
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)
     # TODO: Use scheduler?
@@ -368,12 +359,13 @@ def main(
     best_model_name = train_model(
         model=model,
         train_dl=train_dl,
+        val_dl=val_dl,
         optimizer=optimizer,
         loss_criterion=loss_criterion,
         epochs=epochs,
-        running_metric=mean_iou_score_fn,
-        metric_name="mIoU",
-        after_epoch=after_epoch,
+        metrics=metrics,
+        display_metrics_fns=display_metrics,
+        save_folder=save_folder,
         device=device,
     )
     print("\n*** Finished training model ***\n")
