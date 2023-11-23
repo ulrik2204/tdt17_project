@@ -10,6 +10,7 @@ from matplotlib import pyplot as plt
 from segmentation_models_pytorch.losses import DiceLoss
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
+from torchmetrics.classification import MulticlassJaccardIndex
 from tqdm import tqdm
 
 from tdt17_project.data import (
@@ -17,14 +18,13 @@ from tdt17_project.data import (
     get_image_target_transform,
     get_val_test_transform,
 )
-from tdt17_project.metrics import classwise_iou_score, mean_iou_score
 from tdt17_project.model import get_unet_model
 from tdt17_project.utils import CityscapesContants, decode_segmap, encode_segmap
 
 DATASET_BASE_PATH = "/cluster/projects/vc/data/ad/open/Cityscapes"
 BATCH_SIZE = 32
-EPOCHS = 10
-LEARNING_RATE = 0.005
+EPOCHS = 20
+LEARNING_RATE = 0.001
 WEIGHTS_FOLDER = "./weights"
 
 
@@ -70,6 +70,7 @@ def train_model(
     loss_criterion: nn.Module,
     epochs: int,
     running_metric: Callable[[Any, Any], Any],
+    metric_name: str = "metric",
     after_epoch: AfterEpochFn | None = None,
     device: str = "cuda",
 ) -> str:
@@ -100,14 +101,14 @@ def train_model(
 
             pbar.set_postfix_str(
                 f"TRAIN: avg loss {total_loss/(index+1):.3f}, "
-                + f"avg {running_metric.__name__}: {total_metric/(index+1):.3f}"
+                + f"avg {metric_name}: {total_metric/(index+1):.3f}"
             )
-        best_model_result = (
+        best_model_name = (
             after_epoch(model, loss_criterion, epoch, best_loss)
             if after_epoch
             else None
         )
-        best_model_name = best_model_result if best_model_result else ""
+        best_model_name = best_model_name if best_model_name else ""
 
         # scheduler.step() # (after epoch)
     return best_model_name
@@ -122,14 +123,13 @@ def evaluate_model(
     model: nn.Module,
     dataloader: DataLoader,
     loss_criterion: nn.Module,
-    running_metric: Callable[[Any, Any], Any],
-    eval_metrics: list[Callable[[Any, Any], Any]] | None = None,
+    metrics: list[Callable[[Any, Any], Any]],
+    first_metric_name: str = "metric",
     title: str = "VAL",
     device="cuda",
 ) -> EvalResult:
     model.eval()
     total_loss = 0
-    metrics = [running_metric] + (eval_metrics or [])
     all_metric_totals: list[torch.Tensor | int] = [0 for _ in range(len(metrics))]
     with torch.no_grad():
         for index, (image, target) in (
@@ -149,13 +149,22 @@ def evaluate_model(
             avg_running_metric_score = all_metric_totals[0] / (index + 1)
             pbar.set_postfix_str(
                 f"{title}: average loss {total_loss/(index+1):.3f}, "
-                + f"avg {running_metric.__name__}: {avg_running_metric_score:.3f}"
+                + f"avg {first_metric_name}: {avg_running_metric_score:.3f}"
             )
     avg_metrics = [
         cast(torch.Tensor, metric_total / len(dataloader))
         for metric_total in all_metric_totals
     ]
     return EvalResult(float(total_loss / len(dataloader)), avg_metrics)
+
+
+def display_metrics_to_screen(
+    metric_scores: list[torch.Tensor],
+    display_metric_fns: list[Callable[[torch.Tensor], str]],
+):
+    print("-- Metrics --")
+    for metric_score, display_fn in zip(metric_scores, display_metric_fns):
+        print(display_fn(metric_score))
 
 
 def plot_image_mask_and_pred(
@@ -176,13 +185,14 @@ def plot_image_mask_and_pred(
 
 def show_model_segmentation_sample(
     model: nn.Module,
-    examples: list[tuple[Any, Any]],
+    examples: list[tuple[torch.Tensor, torch.Tensor]],
     loss_criterion: nn.Module,
-    metrics: list[Callable[[Any, Any], Any]],
-    device: str,
+    metrics: list[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]],
+    display_metric_fns: list[Callable[[torch.Tensor], str]],
+    device: str = "cuda",
     model_name: str = "model",
 ):
-    print("\n--- Model examples ---")
+    print("\n*** Model examples ***")
     model.eval()
     with torch.no_grad():
         for i, (image, target) in enumerate(examples):
@@ -198,18 +208,28 @@ def show_model_segmentation_sample(
                 torch.argmax(pred.squeeze(0).detach().cpu(), dim=0)
             )
             decoded_target = decode_segmap(target_prep.squeeze(0).detach().cpu())
-            print("Average mIoU per class per epoch:", metric_scores[0])
-            avg_miou_scores_per_class = dict(
-                zip(CityscapesContants.CLASS_NAMES, metric_scores[1].tolist())
-            )
-            print("mIoU per epoch per class:\n", avg_miou_scores_per_class)
+            display_metrics_to_screen(metric_scores, display_metric_fns)
             plot_image_mask_and_pred(
                 image,
                 decoded_target,
                 decoded_pred,
-                f"[loss: {loss:.3f}, {metrics[0].__name__}: {float(metric_scores[0]):.3f}]",
+                f"[loss: {loss:.3f}, {display_metric_fns[0](metric_scores[0])}",
                 f"{model_name}_sample_{i}.png",
             )
+
+
+def display_miou_score(score: torch.Tensor):
+    return f"mIoU: {score:.3f}"
+
+
+def display_classwise_iou_score(score: torch.Tensor):
+    return (
+        f"classwise IoU\n: {dict(zip(CityscapesContants.CLASS_NAMES, score.tolist()))}"
+    )
+
+
+def display_weighted_iou_score(score: torch.Tensor):
+    return f"weighted: {score:.3f}"
 
 
 @click.command()
@@ -292,12 +312,23 @@ def main(
         model.load_state_dict(torch.load(resume_from_weights))
 
     loss_criterion = DiceLoss(mode="multiclass")
+    mean_iou_score_fn = MulticlassJaccardIndex(
+        num_classes=num_classes, average="macro"
+    ).to(device)
+    classwise_iou_score_fn = MulticlassJaccardIndex(
+        num_classes=num_classes, average="none"
+    ).to(device)
+    weighted_iou_score_fn = MulticlassJaccardIndex(
+        num_classes=num_classes, average="weighted"
+    ).to(device)
 
-    def miou_score(preds: torch.Tensor, targets: torch.Tensor):
-        return mean_iou_score(preds, targets, num_classes=num_classes)
+    metrics = [mean_iou_score_fn, classwise_iou_score_fn, weighted_iou_score_fn]
 
-    def classwise_iou(preds: torch.Tensor, targets: torch.Tensor):
-        return classwise_iou_score(preds, targets, num_classes=num_classes)
+    display_metrics = [
+        display_miou_score,
+        display_classwise_iou_score,
+        display_weighted_iou_score,
+    ]
 
     def after_epoch(
         model: nn.Module, loss_criterion: nn.Module, epoch: int, best_loss: torch.Tensor
@@ -306,19 +337,13 @@ def main(
             model=model,
             dataloader=val_dl,
             loss_criterion=loss_criterion,
-            running_metric=miou_score,
-            eval_metrics=[classwise_iou],
+            metrics=metrics,
+            first_metric_name="mIoU",
             title="VAL",
             device=device,
         )
-        # Show metric scores
-        print("\n--- Eval metrics ---")
-        print("Average mIoU per class per epoch:", avg_eval_metric_scores[0])
-        avg_miou_scores_per_class = dict(
-            zip(CityscapesContants.CLASS_NAMES, avg_eval_metric_scores[1].tolist())
-        )
-        print("mIoU per epoch per class:\n", avg_miou_scores_per_class)
-        if epoch % 5 == 0 and avg_eval_loss < best_loss:
+        display_metrics_to_screen(avg_eval_metric_scores, display_metrics)
+        if avg_eval_loss < best_loss:
             time = datetime.now().strftime("%d%H%M")
             best_model_name = f"{time}_model.pt"
             model_path = (save_folder / best_model_name).as_posix()
@@ -329,13 +354,13 @@ def main(
     # TODO: Switch optimizer?
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)
     # TODO: Use scheduler?
-    sample_image, target_mask = val_data[5]
     show_model_segmentation_sample(
         model,
-        [(sample_image, target_mask)],
+        [val_data[5]],
         loss_criterion,
-        [miou_score, classwise_iou],
-        device,
+        metrics,
+        display_metric_fns=display_metrics,
+        device=device,
         model_name=resume_from_weights,
     )
     print("Starting training")
@@ -346,7 +371,8 @@ def main(
         optimizer=optimizer,
         loss_criterion=loss_criterion,
         epochs=epochs,
-        running_metric=miou_score,
+        running_metric=mean_iou_score_fn,
+        metric_name="mIoU",
         after_epoch=after_epoch,
         device=device,
     )
@@ -358,19 +384,19 @@ def main(
         model=model,
         dataloader=test_dl if test_dl else val_dl,
         loss_criterion=loss_criterion,
-        running_metric=miou_score,
-        eval_metrics=[classwise_iou],
+        metrics=metrics,
+        first_metric_name="mIoU",
         title="TEST" if test_dl else "TEST (val dataset)",
         device=device,
     )
-    sample_image, target_mask = val_data[5]
     show_model_segmentation_sample(
         model,
-        [(sample_image, target_mask)],
+        [val_data[5]],
         loss_criterion,
-        [miou_score, classwise_iou],
-        device,
-        best_model_name,
+        metrics,
+        display_metric_fns=display_metrics,
+        device=device,
+        model_name=best_model_name,
     )
 
 
