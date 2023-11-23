@@ -1,6 +1,6 @@
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, NamedTuple, Protocol
 
 import click
 import numpy as np
@@ -8,7 +8,6 @@ import torch.nn as nn
 import torch.optim
 from matplotlib import pyplot as plt
 from segmentation_models_pytorch.losses import DiceLoss
-from segmentation_models_pytorch.utils.metrics import IoU
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -18,6 +17,7 @@ from tdt17_project.data import (
     get_image_target_transform,
     get_val_test_transform,
 )
+from tdt17_project.metrics import classwise_iou_score, mean_iou_score
 from tdt17_project.model import get_unet_model
 from tdt17_project.utils import CityscapesContants, decode_segmap, encode_segmap
 
@@ -28,35 +28,54 @@ LEARNING_RATE = 0.005
 WEIGHTS_FOLDER = "./weights"
 
 
+class ProcessBatchResult(NamedTuple):
+    loss: torch.Tensor
+    metric_scores: list[torch.Tensor]
+    pred: torch.Tensor
+    target_prep: torch.Tensor
+
+
 def process_batch(
     image: torch.Tensor,
     target: torch.Tensor,
     model: nn.Module,
     loss_criterion: nn.Module,
-    metric: Callable[[Any, Any], Any],
-    device: str,
-):
+    metrics: list[Callable[[Any, Any], torch.Tensor]],
+    device: str = "cuda",
+) -> ProcessBatchResult:
     image_prep = image.to(device).float()
     target_prep = encode_segmap(target.to(device).long())  # to remove unwanted classes
     pred = model(image_prep)
     loss = loss_criterion(pred, target_prep)
-    metric_score = metric(pred, target_prep).detach().cpu()
-    return loss, metric_score
+    metric_scores = [metric(pred, target_prep) for metric in metrics]
+    # print("metric_scores", metric_scores)
+    return ProcessBatchResult(loss, metric_scores, pred, target_prep)
+
+
+class AfterEpochFn(Protocol):
+    def __call__(
+        self,
+        model: nn.Module,
+        loss_criterion: nn.Module,
+        epoch: int,
+        best_loss: torch.Tensor,
+    ) -> str | None:
+        ...
 
 
 def train_model(
     model: nn.Module,
     train_dl: DataLoader,
-    val_dl: DataLoader,
     optimizer: Optimizer,
     loss_criterion: nn.Module,
-    metric: Callable[[Any, Any], Any],
     epochs: int,
-    save_folder: Path,
+    running_metric: Callable[[Any, Any], Any],
+    after_epoch: AfterEpochFn | None = None,
     device: str = "cuda",
-):
+) -> str:
     model.train()
-    best_loss = 10000000
+    best_loss = torch.Tensor([10000000.0]).to(device)
+    best_model_name = ""
     for epoch in range(epochs):
         print(f"\n--- Epoch {epoch+1} ---")
         total_loss = 0
@@ -64,58 +83,81 @@ def train_model(
         for index, (image, target) in (
             pbar := tqdm(enumerate(train_dl), total=len(train_dl))
         ):
-            loss, metric_score = process_batch(
-                image, target, model, loss_criterion, metric, device
+            loss, metric_scores, *_ = process_batch(
+                image,
+                target,
+                model,
+                loss_criterion,
+                [running_metric],
+                device,
             )
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
             total_loss += loss.detach().cpu()
-            total_metric += metric_score
+            total_metric += metric_scores[0]
+            best_loss = loss if loss < best_loss else best_loss
 
             pbar.set_postfix_str(
-                f"TEST: average loss {total_loss/(index+1):.3f}, {metric.__name__}: {total_metric/(index+1):.3f}"
+                f"TEST: avg loss {total_loss/(index+1):.3f}, "
+                + f"avg {running_metric.__name__}: {total_metric/(index+1):.3f}"
             )
-        validation_loss = evaluate_model(
-            model, val_dl, loss_criterion, metric, "VAL", device
+        best_model_result = (
+            after_epoch(model, loss_criterion, epoch, best_loss)
+            if after_epoch
+            else None
         )
-        if epoch % 5 == 0 and validation_loss < best_loss:
-            best_loss = validation_loss
-            time = datetime.now().strftime("%Y-%m-%d--%H-%M-%S")
-            torch.save(
-                model.state_dict(),
-                (save_folder / f"{time}_{validation_loss:.0f}_model.pt").as_posix(),
-            )
+        best_model_name = best_model_result if best_model_result else ""
+
         # scheduler.step() # (after epoch)
+    return best_model_name
+
+
+class EvalResult(NamedTuple):
+    avg_loss: float
+    avg_metric_scores: list[torch.Tensor]
 
 
 def evaluate_model(
     model: nn.Module,
     dataloader: DataLoader,
     loss_criterion: nn.Module,
-    metric: Callable[[Any, Any], Any],
-    title: str,
+    running_metric: Callable[[Any, Any], Any],
+    eval_metrics: list[Callable[[Any, Any], Any]] | None = None,
+    title: str = "VAL",
     device="cuda",
-):
+) -> EvalResult:
     model.eval()
     total_loss = 0
-    total_metric = 0
+    metrics = [running_metric] + (eval_metrics or [])
+    all_metric_totals = [torch.tensor(0) for _ in range(len(metrics))]
     with torch.no_grad():
         for index, (image, target) in (
             pbar := tqdm(enumerate(dataloader), total=len(dataloader))
         ):
-            loss, metric_score = process_batch(
-                image, target, model, loss_criterion, metric, device
+            loss, metric_scores, *_ = process_batch(
+                image,
+                target,
+                model,
+                loss_criterion,
+                metrics,
+                device,
             )
             total_loss += loss.detach().cpu()
-            total_metric += metric_score.detach().cpu()
+            for i, metric_score in enumerate(metric_scores):
+                all_metric_totals[i] += metric_score.detach().cpu()
+            avg_running_metric_score = all_metric_totals[0] / (index + 1)
             pbar.set_postfix_str(
-                f"{title}: average loss {total_loss/(index+1):.3f}, avg {metric.__name__}: {total_metric/(index+1):.3f}"
+                f"{title}: average loss {total_loss/(index+1):.3f}, "
+                + f"avg {running_metric.__name__}: {avg_running_metric_score:.3f}"
             )
-    return total_loss / len(dataloader)
+    avg_metrics = [metric_total / len(dataloader) for metric_total in all_metric_totals]
+    return EvalResult(float(total_loss / len(dataloader)), avg_metrics)
 
 
-def plot_image_mask_and_pred(real_image, target_mask, pred_mask):
+def plot_image_mask_and_pred(
+    real_image, target_mask, pred_mask, score_str: str, image_name: str
+):
     _, ax = plt.subplots(ncols=3, figsize=(16, 50), facecolor="white")
     ax[0].imshow(np.moveaxis(real_image.numpy(), 0, 2))
     ax[1].imshow(target_mask)
@@ -125,24 +167,46 @@ def plot_image_mask_and_pred(real_image, target_mask, pred_mask):
     ax[2].axis("off")
     ax[0].set_title("Input Image")
     ax[1].set_title("Ground mask")
-    ax[2].set_title("Predicted mask")
-    plt.savefig("result.png", bbox_inches="tight")
+    ax[2].set_title(f"Predicted mask, {score_str}")
+    plt.savefig(image_name, bbox_inches="tight")
 
 
 def show_model_segmentation_sample(
-    model: nn.Module, examples: list[tuple[Any, Any]], device: str
+    model: nn.Module,
+    examples: list[tuple[Any, Any]],
+    loss_criterion: nn.Module,
+    metrics: list[Callable[[Any, Any], Any]],
+    device: str,
+    model_name: str = "model",
 ):
     print("\n--- Model examples ---")
     model.eval()
     with torch.no_grad():
-        for image, target in examples:
-            image_prep = image.to(device).float().unsqueeze(0)
-            target_prep = target.to(device).long()
-            pred = model(image_prep).detach().cpu()
-            decoded_pred = decode_segmap(torch.argmax(pred, dim=0))
-            encoded_target_mask = encode_segmap(target_prep)
-            decoded_target_mask = decode_segmap(encoded_target_mask)
-            plot_image_mask_and_pred(image, decoded_target_mask, decoded_pred)
+        for i, (image, target) in enumerate(examples):
+            loss, metric_scores, pred, target_prep = process_batch(
+                image.unsqueeze(0),
+                target.unsqueeze(0),
+                model,
+                loss_criterion,
+                metrics,
+                device,
+            )
+            decoded_pred = decode_segmap(
+                torch.argmax(pred.squeeze(0).detach().cpu(), dim=0)
+            )
+            decoded_target = decode_segmap(target_prep.squeeze(0).detach().cpu())
+            print("Average mIoU per class per epoch:", metric_scores[0])
+            avg_miou_scores_per_class = dict(
+                zip(CityscapesContants.CLASS_NAMES, metric_scores[1].tolist())
+            )
+            print("mIoU per epoch per class:\n", avg_miou_scores_per_class)
+            plot_image_mask_and_pred(
+                image,
+                decoded_target,
+                decoded_pred,
+                f"[loss: {loss:.3f}, {metrics[0].__name__}: {float(metric_scores[0]):.3f}]",
+                f"{model_name}_sample_{i}.png",
+            )
 
 
 @click.command()
@@ -223,47 +287,88 @@ def main(
     model.to(device)
     if resume_from_weights:
         model.load_state_dict(torch.load(resume_from_weights))
-    # TODO: What should the softmax dim be?
-    # loss_criterion = MulticlassDiceLoss(
-    #     num_classes=len(train_data.classes), softmax_dim=1
-    # )
-    loss_criterion = DiceLoss(mode="multiclass")
-    iou_meteric = IoU()
 
-    def mean_iou_score(preds, targets):
-        targets_one_hot = (
-            torch.nn.functional.one_hot(targets.long(), num_classes)
-            .permute(0, 3, 1, 2)
-            .float()
+    loss_criterion = DiceLoss(mode="multiclass")
+
+    def miou_score(preds: torch.Tensor, targets: torch.Tensor):
+        return mean_iou_score(preds, targets, num_classes=num_classes)
+
+    def classwise_iou(preds: torch.Tensor, targets: torch.Tensor):
+        return classwise_iou_score(preds, targets, num_classes=num_classes)
+
+    def after_epoch(
+        model: nn.Module, loss_criterion: nn.Module, epoch: int, best_loss: torch.Tensor
+    ) -> str | None:
+        avg_eval_loss, avg_eval_metric_scores = evaluate_model(
+            model=model,
+            dataloader=val_dl,
+            loss_criterion=loss_criterion,
+            running_metric=miou_score,
+            eval_metrics=[classwise_iou],
+            title="VAL",
+            device=device,
         )
-        return iou_meteric(preds, targets_one_hot).mean()
+        # Show metric scores
+        print("\n--- Eval metrics ---")
+        print("Average mIoU per class per epoch:", avg_eval_metric_scores[0])
+        avg_miou_scores_per_class = dict(
+            zip(CityscapesContants.CLASS_NAMES, avg_eval_metric_scores[1].tolist())
+        )
+        print("mIoU per epoch per class:\n", avg_miou_scores_per_class)
+        if epoch % 5 == 0 and avg_eval_loss < best_loss:
+            time = datetime.now().strftime("%d%H%M")
+            best_model_name = f"{time}_model.pt"
+            model_path = (save_folder / best_model_name).as_posix()
+            torch.save(model.state_dict(), model_path)
+            return best_model_name
+        return None
 
     # TODO: Switch optimizer?
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)
     # TODO: Use scheduler?
-    print("Starting training")
-    train_model(
+    sample_image, target_mask = val_data[5]
+    show_model_segmentation_sample(
         model,
-        train_dl,
-        val_dl,
-        optimizer,
+        [(sample_image, target_mask)],
         loss_criterion,
-        mean_iou_score,
-        epochs,
-        save_folder,
+        [miou_score, classwise_iou],
         device,
+        model_name=resume_from_weights,
+    )
+    print("Starting training")
+
+    best_model_name = train_model(
+        model=model,
+        train_dl=train_dl,
+        optimizer=optimizer,
+        loss_criterion=loss_criterion,
+        epochs=epochs,
+        running_metric=miou_score,
+        after_epoch=after_epoch,
+        device=device,
     )
     print("\n*** Finished training model ***\n")
+    model.load_state_dict(torch.load((save_folder / best_model_name).as_posix()))
+    print("*** Loaded best model from training ***")
+    print("\n *** Testing best model ***")
     evaluate_model(
-        model,
-        test_dl if test_dl else val_dl,
-        loss_criterion,
-        mean_iou_score,
-        "TEST" if test_dl else "TEST (val dataset)",
-        device,
+        model=model,
+        dataloader=test_dl if test_dl else val_dl,
+        loss_criterion=loss_criterion,
+        running_metric=miou_score,
+        eval_metrics=[classwise_iou],
+        title="TEST" if test_dl else "TEST (val dataset)",
+        device=device,
     )
-    sample_image, target_mask = val_data[0]
-    show_model_segmentation_sample(model, [(sample_image, target_mask)], device)
+    sample_image, target_mask = val_data[5]
+    show_model_segmentation_sample(
+        model,
+        [(sample_image, target_mask)],
+        loss_criterion,
+        [miou_score, classwise_iou],
+        device,
+        best_model_name,
+    )
 
 
 if __name__ == "__main__":
