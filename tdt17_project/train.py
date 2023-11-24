@@ -417,12 +417,10 @@ def main(
         display_weighted_iou_score,
     ]
 
-    # TODO: Switch optimizer?
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", patience=3, factor=0.5, verbose=True
+        optimizer, mode="min", patience=2, factor=0.5, verbose=True
     )
-    # TODO: Use scheduler?
     show_model_segmentation_sample(
         model,
         [val_data[5]],
