@@ -1,12 +1,12 @@
-from ast import Call
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, NamedTuple, Protocol, cast
+from typing import Any, Callable, NamedTuple, Protocol, TypedDict, cast
 
 import click
 import numpy as np
 import torch.nn as nn
 import torch.optim
+import wandb
 from matplotlib import pyplot as plt
 from segmentation_models_pytorch.losses import DiceLoss
 from torch.optim import Optimizer
@@ -25,8 +25,13 @@ from tdt17_project.utils import CityscapesContants, decode_segmap, encode_segmap
 DATASET_BASE_PATH = "/cluster/projects/vc/data/ad/open/Cityscapes"
 BATCH_SIZE = 32
 EPOCHS = 10
-LEARNING_RATE = 0.001
+LEARNING_RATE = 0.003
 WEIGHTS_FOLDER = "./weights"
+
+
+class DisplayMetricFn(Protocol):
+    def __call__(self, score: torch.Tensor) -> tuple[str, Any]:
+        ...
 
 
 class ProcessBatchResult(NamedTuple):
@@ -53,6 +58,28 @@ def process_batch(
     return ProcessBatchResult(loss, metric_scores, pred, target_prep)
 
 
+class ModelCheckpoint(TypedDict):
+    epoch: int
+    state_dict: dict[str, torch.Tensor]
+    optimizer: dict[str, torch.Tensor]
+
+
+def save_state_dict(model: nn.Module, optimizer: Optimizer, epoch: int, path: str):
+    checkpoint: ModelCheckpoint = {
+        "epoch": epoch + 1,
+        "state_dict": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+    }
+    torch.save(checkpoint, path)
+
+
+def load_state_dict(model: nn.Module, optimizer: Optimizer, path: str):
+    checkpoint: ModelCheckpoint = torch.load(path)
+    model.load_state_dict(checkpoint["state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer"])
+    return model, optimizer, checkpoint["epoch"] - 1
+
+
 class AfterEpochFn(Protocol):
     def __call__(
         self,
@@ -63,15 +90,21 @@ class AfterEpochFn(Protocol):
         ...
 
 
+class Scheduler(Protocol):
+    def step(self, metrics, epoch=None):
+        ...
+
+
 def train_model(
     model: nn.Module,
     train_dl: DataLoader,
     val_dl: DataLoader,
     optimizer: Optimizer,
+    scheduler: Scheduler,
     loss_criterion: nn.Module,
     epochs: int,
     metrics: list[Callable[[Any, Any], Any]],
-    display_metrics_fns: list[Callable[[torch.Tensor], str]],
+    display_metrics_fns: list[DisplayMetricFn],
     save_folder: Path,
     device: str = "cuda",
 ) -> str:
@@ -113,14 +146,15 @@ def train_model(
             title="VAL",
             device=device,
         )
-        display_metrics_to_screen(avg_eval_metric_scores, display_metrics_fns)
+        scheduler.step(avg_eval_loss)
+        log_scores(avg_eval_loss, avg_eval_metric_scores, display_metrics_fns)
         if epoch % 3 == 0 and avg_eval_loss < best_loss:
             print("Saving!")
             best_loss = avg_eval_loss
             time = datetime.now().strftime("%d%H%M")
             best_model_name = f"{time}_model.pt"
             model_path = (save_folder / best_model_name).as_posix()
-            torch.save(model.state_dict(), model_path)
+            save_state_dict(model, optimizer, epoch, model_path)
 
         # scheduler.step() # (after epoch)
     return best_model_name
@@ -170,13 +204,17 @@ def evaluate_model(
     return EvalResult(float(total_loss / len(dataloader)), avg_metrics)
 
 
-def display_metrics_to_screen(
+def log_scores(
+    loss: float,
     metric_scores: list[torch.Tensor],
-    display_metric_fns: list[Callable[[torch.Tensor], str]],
+    display_metric_fns: list[DisplayMetricFn],
 ):
-    print("-- Metrics --")
+    print("-- Loss and Metrics --")
+    print("Loss:", loss)
     for metric_score, display_fn in zip(metric_scores, display_metric_fns):
-        print(display_fn(metric_score))
+        text, score = display_fn(metric_score)
+        print(text, ": ", score)
+        wandb.log({text: score})
 
 
 def plot_image_mask_and_pred(
@@ -200,7 +238,7 @@ def show_model_segmentation_sample(
     examples: list[tuple[torch.Tensor, torch.Tensor]],
     loss_criterion: nn.Module,
     metrics: list[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]],
-    display_metric_fns: list[Callable[[torch.Tensor], str]],
+    display_metric_fns: list[DisplayMetricFn],
     device: str = "cuda",
     model_name: str = "model",
 ):
@@ -220,7 +258,7 @@ def show_model_segmentation_sample(
                 torch.argmax(pred.squeeze(0).detach().cpu(), dim=0)
             )
             decoded_target = decode_segmap(target_prep.squeeze(0).detach().cpu())
-            display_metrics_to_screen(metric_scores, display_metric_fns)
+            log_scores(float(loss), metric_scores, display_metric_fns)
             plot_image_mask_and_pred(
                 image,
                 decoded_target,
@@ -231,17 +269,30 @@ def show_model_segmentation_sample(
 
 
 def display_miou_score(score: torch.Tensor):
-    return f"mIoU: {score:.3f}"
+    return "mIoU", score
 
 
 def display_classwise_iou_score(score: torch.Tensor):
-    return (
-        f"classwise IoU\n: {dict(zip(CityscapesContants.CLASS_NAMES, score.tolist()))}"
-    )
+    return "classwise mIoU score", zip(CityscapesContants.CLASS_NAMES, score.tolist())
 
 
 def display_weighted_iou_score(score: torch.Tensor):
-    return f"weighted: {score:.3f}"
+    return "weighted mIoU score", score
+
+
+def init_wandb(epochs: int, batch_size: int, learning_rate: float):
+    time = datetime.now().strftime("%m%d%H%M")
+    wandb.login()
+    wandb.init(
+        project="tdt17_project",
+        entity="tdt17",
+        name=f"Experiment {time}",
+        config={
+            "epochs": epochs,
+            "batch_size": batch_size,
+            "learning_rate": learning_rate,
+        },
+    )
 
 
 @click.command()
@@ -287,6 +338,7 @@ def main(
         resume_from_weights={resume_from_weights}
         """
     )
+    init_wandb(epochs, batch_size, learning_rate)
     save_folder = Path(weights_folder)
     save_folder.mkdir(exist_ok=True)
     training_transforms = get_image_target_transform()
@@ -336,14 +388,17 @@ def main(
 
     metrics = [mean_iou_score_fn, classwise_iou_score_fn, weighted_iou_score_fn]
 
-    display_metrics = [
+    display_metrics: list[DisplayMetricFn] = [
         display_miou_score,
         display_classwise_iou_score,
         display_weighted_iou_score,
     ]
 
     # TODO: Switch optimizer?
-    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", patience=3, factor=0.5, verbose=True
+    )
     # TODO: Use scheduler?
     show_model_segmentation_sample(
         model,
@@ -361,6 +416,7 @@ def main(
         train_dl=train_dl,
         val_dl=val_dl,
         optimizer=optimizer,
+        scheduler=scheduler,
         loss_criterion=loss_criterion,
         epochs=epochs,
         metrics=metrics,
