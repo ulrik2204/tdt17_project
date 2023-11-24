@@ -284,11 +284,14 @@ def display_weighted_iou_score(score: torch.Tensor):
 
 
 def init_wandb(epochs: int, batch_size: int, learning_rate: float):
+    wandb_cache_path = Path("./.wandb")
     time = datetime.now().strftime("%m%d%H%M")
+    wandb_cache_path.mkdir(parents=True, exist_ok=True)
     wandb.login()
     wandb.init(
         project="tdt17_project",
         name=f"Experiment {time}",
+        dir=wandb_cache_path.as_posix(),
         config={
             "epochs": epochs,
             "batch_size": batch_size,
