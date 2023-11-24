@@ -25,7 +25,7 @@ from tdt17_project.utils import CityscapesContants, decode_segmap, encode_segmap
 DATASET_BASE_PATH = "/cluster/projects/vc/data/ad/open/Cityscapes"
 BATCH_SIZE = 32
 EPOCHS = 10
-LEARNING_RATE = 0.003
+LEARNING_RATE = 0.001
 WEIGHTS_FOLDER = "./weights"
 
 
@@ -211,11 +211,12 @@ def log_scores(
 ):
     print("-- Loss and Metrics --")
     print("Loss:", loss)
-    wandb.log({"loss": loss})
+    log_dict = dict()
     for metric_score, display_fn in zip(metric_scores, display_metric_fns):
         text, score = display_fn(metric_score)
         print(text, ": ", score)
-        wandb.log({text: score})
+        log_dict[text] = score
+    wandb.log(log_dict)
 
 
 def plot_image_mask_and_pred(
