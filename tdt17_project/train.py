@@ -131,11 +131,11 @@ def train_model(
             optimizer.zero_grad()
             total_loss += loss.detach().cpu()
             total_metric += metric_scores[0]
-            metric_display_text = display_metrics_fns[0](metric_scores[0])
+            metric_name, metric_score = display_metrics_fns[0](metric_scores[0])
 
             pbar.set_postfix_str(
                 f"TRAIN: avg loss {total_loss/(index+1):.3f}, "
-                + f"{metric_display_text}"
+                + f"{metric_name}: {metric_score:.3f}"
             )
         avg_eval_loss, avg_eval_metric_scores = evaluate_model(
             model=model,
