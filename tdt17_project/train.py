@@ -271,7 +271,7 @@ def show_model_segmentation_sample(
 
 
 def display_miou_score(score: torch.Tensor):
-    return "mIoU", score
+    return "mIoU", float(score)
 
 
 def display_classwise_iou_score(score: torch.Tensor):
@@ -281,7 +281,7 @@ def display_classwise_iou_score(score: torch.Tensor):
 
 
 def display_weighted_iou_score(score: torch.Tensor):
-    return "weighted mIoU score", score
+    return "weighted mIoU score", float(score)
 
 
 def init_wandb(epochs: int, batch_size: int, learning_rate: float):
