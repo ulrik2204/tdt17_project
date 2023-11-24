@@ -279,11 +279,12 @@ def show_model_segmentation_sample(
                 display_metric_fns=display_metric_fns,
                 log_to_wandb=False,
             )
+            metric_name, score = display_metric_fns[0](metric_scores[0])
             plot_image_mask_and_pred(
                 image,
                 decoded_target,
                 decoded_pred,
-                f"[loss: {loss:.3f}, {display_metric_fns[0](metric_scores[0])}",
+                f"[loss: {loss:.3f}, {metric_name}: {score:.3f}]",
                 f"{model_name}_sample_{i}.png",
             )
 
@@ -396,8 +397,6 @@ def main(
     num_classes = len(CityscapesContants.VALID_CLASSES)
     model = get_unet_model(in_channels=3, out_channels=num_classes)
     model.to(device)
-    if resume_from_weights:
-        model.load_state_dict(torch.load(resume_from_weights))
 
     loss_criterion = DiceLoss(mode="multiclass")
     mean_iou_score_fn = MulticlassJaccardIndex(
@@ -419,6 +418,8 @@ def main(
     ]
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    if resume_from_weights:
+        model, optimizer, _ = load_state_dict(model, optimizer, resume_from_weights)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", patience=2, factor=0.5, verbose=True
     )
@@ -429,7 +430,9 @@ def main(
         metrics,
         display_metric_fns=display_metrics,
         device=device,
-        model_name=resume_from_weights,
+        model_name=resume_from_weights.split("/")[-1]
+        if resume_from_weights
+        else "model",
     )
     print("Starting training")
 
@@ -447,7 +450,9 @@ def main(
         device=device,
     )
     print("\n*** Finished training model ***\n")
-    model.load_state_dict(torch.load((save_folder / best_model_name).as_posix()))
+    model, *_ = load_state_dict(
+        model, optimizer, (save_folder / best_model_name).as_posix()
+    )
     print("*** Loaded best model from training ***")
     print("\n *** Testing best model ***")
     evaluate_model(

@@ -3,7 +3,6 @@ from typing import Any, Callable, Literal
 import albumentations as A
 import albumentations.pytorch as AP
 import numpy as np
-from PIL import Image
 from torchvision.datasets import Cityscapes
 
 
