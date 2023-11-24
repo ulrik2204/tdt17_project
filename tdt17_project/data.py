@@ -30,18 +30,18 @@ def get_image_target_transform():
             A.Resize(256, 256),
             A.RandomResizedCrop(256, 256),
             A.RandomRotate90(),
-            A.ColorJitter(),
+            # A.ColorJitter(),
             A.MotionBlur(),
-            A.OneOf(
-                [
-                    A.GaussNoise(),
-                    A.OpticalDistortion(),
-                    A.ElasticTransform(),
-                    A.GridDistortion(),
-                    A.RandomBrightnessContrast(),
-                ],
-                p=0.5,
-            ),
+            # A.OneOf(
+            #     [
+            #         A.GaussNoise(),
+            #         A.OpticalDistortion(),
+            #         A.ElasticTransform(),
+            #         A.GridDistortion(),
+            #         A.RandomBrightnessContrast(),
+            #     ],
+            #     p=0.5,
+            # ),
             AP.ToTensorV2(),
         ]
     )
