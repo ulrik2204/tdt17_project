@@ -6,7 +6,6 @@ import click
 import numpy as np
 import torch.nn as nn
 import torch.optim
-import wandb
 from matplotlib import pyplot as plt
 from segmentation_models_pytorch.losses import DiceLoss
 from torch.optim import Optimizer
@@ -14,6 +13,7 @@ from torch.utils.data import DataLoader
 from torchmetrics.classification import MulticlassJaccardIndex
 from tqdm import tqdm
 
+import wandb
 from tdt17_project.data import (
     get_dataset,
     get_image_target_transform,
@@ -211,6 +211,7 @@ def log_scores(
 ):
     print("-- Loss and Metrics --")
     print("Loss:", loss)
+    wandb.log({"loss": loss})
     for metric_score, display_fn in zip(metric_scores, display_metric_fns):
         text, score = display_fn(metric_score)
         print(text, ": ", score)
@@ -273,7 +274,9 @@ def display_miou_score(score: torch.Tensor):
 
 
 def display_classwise_iou_score(score: torch.Tensor):
-    return "classwise mIoU score", zip(CityscapesContants.CLASS_NAMES, score.tolist())
+    return "classwise mIoU score", dict(
+        zip(CityscapesContants.CLASS_NAMES, score.tolist())
+    )
 
 
 def display_weighted_iou_score(score: torch.Tensor):
@@ -285,7 +288,6 @@ def init_wandb(epochs: int, batch_size: int, learning_rate: float):
     wandb.login()
     wandb.init(
         project="tdt17_project",
-        entity="tdt17",
         name=f"Experiment {time}",
         config={
             "epochs": epochs,
