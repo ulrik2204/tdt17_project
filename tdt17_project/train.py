@@ -152,6 +152,7 @@ def train_model(
             float(total_loss / len(train_dl)),
             avg_eval_metric_scores,
             display_metrics_fns,
+            log_to_wandb=True,
         )
         if epoch % 3 == 0 and avg_eval_loss < best_loss:
             print("Saving!")

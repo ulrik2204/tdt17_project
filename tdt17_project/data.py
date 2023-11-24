@@ -3,6 +3,7 @@ from typing import Any, Callable, Literal
 import albumentations as A
 import albumentations.pytorch as AP
 import numpy as np
+from PIL import Image
 from torchvision.datasets import Cityscapes
 
 
@@ -22,6 +23,18 @@ def get_dataset(
         transform=transform_image,
         target_transform=target_transform,
     )
+
+
+def apply_albumentations(image, target, transform):
+    transformed = transform(image=np.array(image), mask=np.array(target))
+    return transformed["image"], transformed["mask"]
+
+
+def get_albumentations_transform_function(transform):
+    def transform_image_and_target(image, target):
+        return apply_albumentations(image, target, transform)
+
+    return transform_image_and_target
 
 
 def get_image_target_transform():
@@ -46,11 +59,7 @@ def get_image_target_transform():
         ]
     )
 
-    def transform_image_and_target(image, target):
-        transformed = trans(image=np.array(image), mask=np.array(target))
-        return transformed["image"], transformed["mask"]
-
-    return transform_image_and_target
+    return get_albumentations_transform_function(trans)
 
 
 def get_val_test_transform():
@@ -60,9 +69,4 @@ def get_val_test_transform():
             AP.ToTensorV2(),
         ]
     )
-
-    def transform_image_and_target(image, target):
-        transformed = trans(image=np.array(image), mask=np.array(target))
-        return transformed["image"], transformed["mask"]
-
-    return transform_image_and_target
+    return get_albumentations_transform_function(trans)
