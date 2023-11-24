@@ -211,7 +211,7 @@ def log_scores(
 ):
     print("-- Loss and Metrics --")
     print("Loss:", loss)
-    log_dict = dict()
+    log_dict = dict(loss=loss)
     for metric_score, display_fn in zip(metric_scores, display_metric_fns):
         text, score = display_fn(metric_score)
         print(text, ": ", score)
