@@ -6,6 +6,7 @@ import click
 import numpy as np
 import torch.nn as nn
 import torch.optim
+import wandb
 from matplotlib import pyplot as plt
 from segmentation_models_pytorch.losses import DiceLoss
 from torch.optim import Optimizer
@@ -13,7 +14,6 @@ from torch.utils.data import DataLoader
 from torchmetrics.classification import MulticlassJaccardIndex
 from tqdm import tqdm
 
-import wandb
 from tdt17_project.data import (
     get_dataset,
     get_image_target_transform,
@@ -147,7 +147,12 @@ def train_model(
             device=device,
         )
         scheduler.step(avg_eval_loss)
-        log_scores(avg_eval_loss, avg_eval_metric_scores, display_metrics_fns)
+        log_scores(
+            avg_eval_loss,
+            float(total_loss / len(train_dl)),
+            avg_eval_metric_scores,
+            display_metrics_fns,
+        )
         if epoch % 3 == 0 and avg_eval_loss < best_loss:
             print("Saving!")
             best_loss = avg_eval_loss
@@ -205,18 +210,24 @@ def evaluate_model(
 
 
 def log_scores(
-    loss: float,
+    val_loss: float,
+    train_loss: float | None,
     metric_scores: list[torch.Tensor],
     display_metric_fns: list[DisplayMetricFn],
+    log_to_wandb: bool = True,
 ):
     print("-- Loss and Metrics --")
-    print("Loss:", loss)
-    log_dict = dict(loss=loss)
+    print("Val loss:", val_loss)
+    log_dict = dict(val_loss=val_loss)
+    if train_loss:
+        print("Train loss:", train_loss)
+        log_dict["train_loss"] = train_loss
     for metric_score, display_fn in zip(metric_scores, display_metric_fns):
         text, score = display_fn(metric_score)
         print(text, ": ", score)
         log_dict[text] = score
-    wandb.log(log_dict)
+    if log_to_wandb:
+        wandb.log(log_dict)
 
 
 def plot_image_mask_and_pred(
@@ -260,7 +271,13 @@ def show_model_segmentation_sample(
                 torch.argmax(pred.squeeze(0).detach().cpu(), dim=0)
             )
             decoded_target = decode_segmap(target_prep.squeeze(0).detach().cpu())
-            log_scores(float(loss), metric_scores, display_metric_fns)
+            log_scores(
+                val_loss=float(loss),
+                train_loss=None,
+                metric_scores=metric_scores,
+                display_metric_fns=display_metric_fns,
+                log_to_wandb=False,
+            )
             plot_image_mask_and_pred(
                 image,
                 decoded_target,
