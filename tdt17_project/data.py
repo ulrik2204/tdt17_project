@@ -28,9 +28,20 @@ def get_image_target_transform():
     trans = A.Compose(
         [
             A.Resize(256, 256),
-            # Add more transforms here
-            # A.HorizontalFlip(p=0.5),
-            # A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+            A.RandomResizedCrop(256, 256),
+            A.RandomRotate90(),
+            A.ColorJitter(),
+            A.MotionBlur(),
+            A.OneOf(
+                [
+                    A.GaussNoise(),
+                    A.OpticalDistortion(),
+                    A.ElasticTransform(),
+                    A.GridDistortion(),
+                    A.RandomBrightnessContrast(),
+                ],
+                p=0.5,
+            ),
             AP.ToTensorV2(),
         ]
     )
