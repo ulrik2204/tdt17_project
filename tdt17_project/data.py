@@ -42,7 +42,7 @@ def get_image_target_transform():
             A.Resize(512, 512),
             A.RandomResizedCrop(256, 256),
             A.Normalize(),
-            A.ColorJitter(0.2),
+            A.ColorJitter(),
             A.HorizontalFlip(),
             A.ToGray(p=0.1),
             AP.ToTensorV2(),
