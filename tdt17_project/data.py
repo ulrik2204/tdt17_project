@@ -41,22 +41,10 @@ def get_image_target_transform():
         [
             A.Resize(512, 512),
             A.RandomResizedCrop(256, 256),
-            # A.RandomRotate90(),
             A.Normalize(),
             A.ColorJitter(0.2),
-            A.MotionBlur(p=0.2),
             A.HorizontalFlip(),
             A.ToGray(p=0.1),
-            # A.OneOf(
-            #     [
-            #         A.GaussNoise(),
-            #         A.OpticalDistortion(),
-            #         A.ElasticTransform(),
-            #         A.GridDistortion(),
-            #         A.RandomBrightnessContrast(),
-            #     ],
-            #     p=0.5,
-            # ),
             AP.ToTensorV2(),
         ]
     )
@@ -68,7 +56,7 @@ def get_val_test_transform():
     trans = A.Compose(
         [
             A.Resize(256, 256),
-            # A.Normalize(),
+            A.Normalize(),
             AP.ToTensorV2(),
         ]
     )

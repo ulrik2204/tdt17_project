@@ -397,7 +397,8 @@ def main(
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     if resume_from_weights:
-        model, optimizer, _ = load_state_dict(model, optimizer, resume_from_weights)
+        model, optimizer_new, _ = load_state_dict(model, optimizer, resume_from_weights)
+        optimizer = optimizer_new if optimizer_new else optimizer
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", patience=2, factor=0.5, verbose=True
     )
