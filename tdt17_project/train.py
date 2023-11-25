@@ -1,6 +1,6 @@
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, NamedTuple, Protocol, TypedDict, cast
+from typing import Any, Callable, NamedTuple, Protocol, cast
 
 import click
 import numpy as np
@@ -19,7 +19,7 @@ from tdt17_project.data import (
     get_image_target_transform,
     get_val_test_transform,
 )
-from tdt17_project.model import get_unet_model
+from tdt17_project.model import get_unet_model, load_state_dict, save_state_dict
 from tdt17_project.utils import CityscapesContants, decode_segmap, encode_segmap
 
 DATASET_BASE_PATH = "/cluster/projects/vc/data/ad/open/Cityscapes"
@@ -56,28 +56,6 @@ def process_batch(
     metric_scores = [metric(pred, target_prep) for metric in metrics]
     # print("metric_scores", metric_scores)
     return ProcessBatchResult(loss, metric_scores, pred, target_prep)
-
-
-class ModelCheckpoint(TypedDict):
-    epoch: int
-    state_dict: dict[str, torch.Tensor]
-    optimizer: dict[str, torch.Tensor]
-
-
-def save_state_dict(model: nn.Module, optimizer: Optimizer, epoch: int, path: str):
-    checkpoint: ModelCheckpoint = {
-        "epoch": epoch + 1,
-        "state_dict": model.state_dict(),
-        "optimizer": optimizer.state_dict(),
-    }
-    torch.save(checkpoint, path)
-
-
-def load_state_dict(model: nn.Module, optimizer: Optimizer, path: str):
-    checkpoint: ModelCheckpoint = torch.load(path)
-    model.load_state_dict(checkpoint["state_dict"])
-    optimizer.load_state_dict(checkpoint["optimizer"])
-    return model, optimizer, checkpoint["epoch"] - 1
 
 
 class AfterEpochFn(Protocol):
