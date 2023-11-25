@@ -19,7 +19,12 @@ from tdt17_project.data import (
     get_image_target_transform,
     get_val_test_transform,
 )
-from tdt17_project.model import get_unet_model, load_state_dict, save_state_dict
+from tdt17_project.model import (
+    get_unet_model,
+    get_unetpluplus_model,
+    load_state_dict,
+    save_state_dict,
+)
 from tdt17_project.utils import CityscapesContants, decode_segmap, encode_segmap
 
 DATASET_BASE_PATH = "/cluster/projects/vc/data/ad/open/Cityscapes"
@@ -319,6 +324,11 @@ def init_wandb(epochs: int, batch_size: int, learning_rate: float):
     default=None,
     help="Path to weights to resume training on. If none, starts from scratch.",
 )
+@click.option(
+    "--network-type",
+    default="unet",
+    help="unet or unetplusplus",
+)
 def main(
     dataset_path: str,
     epochs: int,
@@ -328,6 +338,7 @@ def main(
     device: str,
     weights_folder: str,
     resume_from_weights: str,
+    network_type: str,
 ):
     print(
         f"""Args:
@@ -339,6 +350,7 @@ def main(
         device={device},
         weights_folder={weights_folder},
         resume_from_weights={resume_from_weights}
+        network_type={network_type}
         """
     )
     init_wandb(epochs, batch_size, learning_rate)
@@ -373,7 +385,11 @@ def main(
 
     # model = UNetImpl(n_channels=3, n_classes=len(train_data.classes))
     num_classes = len(CityscapesContants.VALID_CLASSES)
-    model = get_unet_model(in_channels=3, out_channels=num_classes)
+    model = (
+        get_unet_model(in_channels=3, out_channels=num_classes)
+        if network_type == "unet"
+        else get_unetpluplus_model(in_channels=3, out_channels=num_classes)
+    )
     model.to(device)
 
     loss_criterion = DiceLoss(mode="multiclass")

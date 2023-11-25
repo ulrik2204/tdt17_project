@@ -2,7 +2,7 @@ from typing import TypedDict
 
 import torch
 import torch.nn as nn
-from segmentation_models_pytorch import Unet
+from segmentation_models_pytorch import Unet, UnetPlusPlus
 from torch.optim import Optimizer
 
 
@@ -10,6 +10,16 @@ def get_unet_model(in_channels: int, out_channels: int):
     return Unet(
         encoder_name="resnet101",
         encoder_weights="imagenet",
+        in_channels=in_channels,
+        classes=out_channels,
+    )
+
+
+def get_unetpluplus_model(in_channels: int, out_channels: int):
+    return UnetPlusPlus(
+        encoder_name="resnet101",
+        encoder_weights="imagenet",
+        decoder_attention_type="scse",
         in_channels=in_channels,
         classes=out_channels,
     )
