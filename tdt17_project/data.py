@@ -39,11 +39,14 @@ def get_albumentations_transform_function(transform):
 def get_image_target_transform():
     trans = A.Compose(
         [
-            A.Resize(256, 256),
+            A.Resize(512, 512),
             A.RandomResizedCrop(256, 256),
-            A.RandomRotate90(),
-            # A.ColorJitter(),
-            A.MotionBlur(),
+            # A.RandomRotate90(),
+            A.Normalize(),
+            A.ColorJitter(0.2),
+            A.MotionBlur(p=0.2),
+            A.HorizontalFlip(),
+            A.ToGray(p=0.1),
             # A.OneOf(
             #     [
             #         A.GaussNoise(),
@@ -65,6 +68,7 @@ def get_val_test_transform():
     trans = A.Compose(
         [
             A.Resize(256, 256),
+            # A.Normalize(),
             AP.ToTensorV2(),
         ]
     )
