@@ -445,7 +445,7 @@ def main(
     )
     show_model_segmentation_sample(
         model,
-        [val_data[5]],
+        [val_data[5], val_data[2]],
         loss_criterion,
         metrics,
         display_metric_fns=display_metrics,
